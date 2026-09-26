@@ -1,8 +1,10 @@
 """Page: Settings — deliberately small personalization surface (§15.5-12)."""
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget)
+    QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLayout,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from ...ui.theme import DENSITIES, THEMES
 from ..widgets import Card, heading, page_wrapper, primary
@@ -14,9 +16,22 @@ class SettingsPage(QWidget):
     def __init__(self, ctx) -> None:
         super().__init__()
         w, self.root = page_wrapper()
+        # Keep the settings cards at their natural minimum height.  The page
+        # grows vertically and the scroll area handles smaller windows instead
+        # of Qt compressing every card until its controls/text are clipped.
+        self.root.setSizeConstraint(QLayout.SetMinimumSize)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setWidget(w)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(w)
+        outer.setSpacing(0)
+        outer.addWidget(self.scroll_area)
         self.ctx = ctx
 
         self.root.addWidget(heading(
