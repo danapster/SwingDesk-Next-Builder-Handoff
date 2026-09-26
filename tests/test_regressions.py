@@ -275,16 +275,20 @@ def test_sidebar_brand_has_noncollapsed_size_hint(qapp):
 
 
 # 27
-def test_successful_mt5_probe_still_labels_demo_active(make_app, monkeypatch):
+def test_successful_mt5_connect_labels_live_data(make_app, monkeypatch):
     win = make_app()
     page = win.pages["broker"]
     fake = types.SimpleNamespace(
         initialize=lambda *_args, **_kwargs: True,
-        terminal_info=lambda: types.SimpleNamespace(name="Test MT5"),
-        account_info=lambda: types.SimpleNamespace(login=123, balance=1000.0, currency="USD"),
+        terminal_info=lambda: types.SimpleNamespace(name="Test MT5", company="Broker"),
+        account_info=lambda: types.SimpleNamespace(
+            login=123, balance=1000.0, equity=1005.0,
+            currency="USD", server="Broker-Live"),
+        symbols_get=lambda: (),
+        positions_get=lambda: (),
         shutdown=lambda: None,
     )
     monkeypatch.setitem(sys.modules, "MetaTrader5", fake)
     page.try_real_mt5()
-    assert "DEMO ACTIVE" in page.status_badge.text()
-    assert "still using DEMO data" in page.status_detail.text()
+    assert "LIVE MT5" in page.status_badge.text()
+    assert "Prices, contracts, candles, equity and positions are live" in page.status_detail.text()
