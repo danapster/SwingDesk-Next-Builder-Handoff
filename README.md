@@ -7,7 +7,7 @@ Factory weekly JSON cache** for the economic calendar.
 
 | | |
 |---|---|
-| Status | 12 functional pages, live MT5 market data, engines A–I, local Forex Factory calendar cache, persistence, risk controls |
+| Status | 12 functional pages, live MT5 market data, engines A–I, local Forex Factory calendar cache, local macro-policy cache, persistence, risk controls |
 | Target | Windows 10/11, Python 3.10+ |
 | Market data | **Live MetaTrader 5**: broker symbols, Market Watch, bid/ask, contract metadata, candles, account equity and open positions |
 | Calendar | Local `ff_calendar_thisweek.json`; online content is used only to refresh that local file |
@@ -15,8 +15,10 @@ Factory weekly JSON cache** for the economic calendar.
 | Persistence | SQLite WAL at `%LOCALAPPDATA%\SwingDesk\swingdesk.db` |
 | Broker execution | **Disabled in this build** — live MT5 positions are mirrored read-only |
 
-The deterministic demo adapter is retained only as an explicitly labelled
-fallback and for automated tests. The UI never labels fallback data as live.
+The deterministic demo adapter is retained only for automated tests and
+`--self-test`. Normal production runtime is live-required: when MT5 is
+offline, Swing Desk reports market data unavailable instead of substituting
+synthetic quotes or candles.
 
 ## Windows quick start
 
@@ -102,6 +104,44 @@ SWINGDESK_CALENDAR_PATH
 SWINGDESK_SCAN_LIMIT
 SWINGDESK_FORCE_DEMO
 ```
+
+## Macro policy provider
+
+The Calendar & Macro page can also use a local central-bank policy-rate cache:
+
+```text
+%LOCALAPPDATA%\SwingDesk\macro\policy_rates.json
+```
+
+The UI reads only that local file. Trading Economics is the optional online
+updater for current policy-rate snapshots. It covers USD, EUR, GBP, JPY, CHF,
+CAD, AUD, NZD and ZAR in the initial mapping and stores the provider's latest
+and previous values, effective date and original source.
+
+Set the API key once for the Windows user:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+    'SWINGDESK_TE_API_KEY',
+    'YOUR_TRADING_ECONOMICS_API_KEY',
+    'User'
+)
+```
+
+Restart Swing Desk, then use **Settings → Macro policy provider → Test & refresh
+policy rates**. The policy cache checks no more than every six hours during
+normal runtime and retains the last valid local file if the provider is
+unavailable.
+
+The rate-board stance is deliberately mechanical:
+
+- **HIKING** — latest policy rate is above the previous reading;
+- **EASING** — latest policy rate is below the previous reading;
+- **HOLDING** — latest and previous rates are equal.
+
+For a selected FX market, the Calendar & Macro page displays the
+**base-currency policy rate minus quote-currency policy rate**. This is a
+descriptive differential, not a trading recommendation.
 
 ## Validation
 
