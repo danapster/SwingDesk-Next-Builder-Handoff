@@ -89,8 +89,9 @@ class BrokerPage(QWidget):
             self.status_badge.set_kind("gold", "DEMO FALLBACK")
             detail = demo_data.last_error() or "MT5 has not connected."
             self.status_detail.setText(
-                f"Live MT5 is unavailable: {detail}. SwingDesk is using the deterministic "
-                "demo market-data fallback. Open and log into MT5, then reconnect here.")
+                f"Live MetaTrader5 is unavailable: {detail}. SwingDesk is using the deterministic "
+                "demo market-data fallback. Precise action: open and log into your broker's "
+                "MetaTrader 5 terminal, then reconnect here.")
 
     def _render_disc(self) -> None:
         recs = demo_data.universe()
