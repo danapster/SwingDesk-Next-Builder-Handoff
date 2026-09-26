@@ -1,0 +1,7 @@
+{
+  "obsidian": {"bg":"#08090B","panel":"#111318","panelAlt":"#17191F","input":"#0A0B0E","border":"#292C33","text":"#ECE9E2","muted":"#8D9098","gold":"#C9A96A","goldBright":"#E3C88D","goldFill":"#B49359","bull":"#71C79A","bear":"#DF7777"},
+  "paper": {"bg":"#F7F3EC","panel":"#EFEBE3","panelAlt":"#E6E1D6","input":"#FBF9F4","border":"#D6CFC1","text":"#23211E","muted":"#6D685E","gold":"#9C7A35","bull":"#3D8560","bear":"#B45555"},
+  "terminal": {"bg":"#000000","panel":"#0B0B0B","panelAlt":"#161616","input":"#000000","border":"#333333","text":"#FFFFFF","muted":"#999999","gold":"#FFFFFF","bull":"#86D6A9","bear":"#E58B8B"},
+  "typography": {"heading":"Georgia, Times New Roman, serif","body":"Segoe UI, Arial, sans-serif","numeric":"Cascadia Mono, Consolas, monospace"},
+  "radii": {"control":9,"card":13,"brand":16}
+}

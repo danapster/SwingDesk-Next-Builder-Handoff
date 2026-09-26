@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="300" viewBox="0 0 1260 300" role="img" aria-labelledby="title desc">
+  <title id="title">Swing Desk</title>
+  <desc id="desc">Swing Desk wordmark with an SD radar monogram inside a glowing rectangular frame.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0B0B0E"/><stop offset="1" stop-color="#181820"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F2D878"/><stop offset=".45" stop-color="#C9A227"/><stop offset="1" stop-color="#8E6B12"/></linearGradient>
+    <linearGradient id="signal" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#9AA0A6"/><stop offset=".55" stop-color="#6AE4FF"/><stop offset="1" stop-color="#F2D878"/></linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="7" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="13"/></filter>
+  </defs>
+  <rect x="1" y="1" width="1258" height="298" rx="28" fill="#F7F4EE" stroke="#D9D4C8" stroke-width="2"/>
+  <rect x="18" y="18" width="1224" height="264" rx="20" fill="none" stroke="#C9A227" stroke-opacity=".14" stroke-width="1"/>
+  <!-- Static analogue of the animated CSS shine -->
+  <path d="M40 42H370" stroke="#C9A227" stroke-width="2" stroke-linecap="round" opacity=".85"/>
+  <path d="M370 42H548" stroke="url(#signal)" stroke-width="3" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M548 42H1220" stroke="#C9A227" stroke-width="2" stroke-linecap="round" opacity=".2"/>
+  <g transform="translate(74 65)">
+    <rect width="170" height="170" rx="42" fill="#FFFFFF" stroke="#D9D4C8" stroke-width="2"/>
+    <circle cx="85" cy="85" r="57" fill="none" stroke="#C9A227" stroke-opacity=".28"/>
+    <circle cx="85" cy="85" r="38" fill="none" stroke="#9AA0A6" stroke-opacity=".27"/>
+    <path d="M24 116A72 72 0 0 1 122 25" fill="none" stroke="url(#signal)" stroke-width="8" stroke-linecap="round" filter="url(#glow)"/>
+    <path d="M36 111L62 84L82 98L111 58L142 77" fill="none" stroke="url(#gold)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="62" cy="84" r="5" fill="#F2D878"/><circle cx="111" cy="58" r="5" fill="#6AE4FF"/>
+    <path d="M85 28V142M28 85H142" stroke="#9AA0A6" stroke-opacity=".16"/>
+  </g>
+  <g transform="translate(292 92)">
+    <text x="0" y="75" font-family="Arial, Helvetica, sans-serif" font-size="92" font-weight="700" letter-spacing="9" fill="#1C1C1E">SWING</text>
+    <text x="0" y="147" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="600" letter-spacing="16" fill="url(#gold)">DESK</text>
+    <rect x="4" y="165" width="320" height="2" rx="1" fill="#9AA0A6" opacity=".38"/>
+    <text x="0" y="198" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="600" letter-spacing="5" fill="#6B6B6B">MARKET · THESIS · PLAN · REVIEW</text>
+  </g>
+</svg>

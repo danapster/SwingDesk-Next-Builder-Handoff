@@ -1,0 +1,12 @@
+spec_version: 1
+id: default-owner-confirm
+label: Default Signature Chain — OWNER CONFIRM
+parameters:
+  sweep_tolerance_ticks: 3
+  confirmation_mode: close
+conditions:
+  - primitive: liquidity_sweep
+  - primitive: displacement
+  - primitive: fvg_created
+  - primitive: zone_retest
+  - primitive: directional_reaction

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Swing Desk app icon</title>
+  <desc id="desc">Obsidian app icon with SD monogram, radar sweep, and rising swing mark.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#22222B"/><stop offset=".48" stop-color="#0B0B0E"/><stop offset="1" stop-color="#050507"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#8E6B12"/><stop offset=".45" stop-color="#C9A227"/><stop offset="1" stop-color="#F2D878"/></linearGradient>
+    <linearGradient id="cyan" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#9AA0A6"/><stop offset=".65" stop-color="#6AE4FF"/><stop offset="1" stop-color="#EDE9E1"/></linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="18" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="18" y="18" width="988" height="988" rx="224" fill="url(#surface)" stroke="#30303A" stroke-width="18"/>
+  <rect x="50" y="50" width="924" height="924" rx="194" fill="none" stroke="#C9A227" stroke-opacity=".2" stroke-width="4"/>
+  <circle cx="512" cy="512" r="306" fill="none" stroke="#9AA0A6" stroke-opacity=".18" stroke-width="4"/>
+  <circle cx="512" cy="512" r="206" fill="none" stroke="#C9A227" stroke-opacity=".19" stroke-width="4"/>
+  <path d="M194 710A374 374 0 0 1 690 176" fill="none" stroke="url(#cyan)" stroke-width="34" stroke-linecap="round" opacity=".9" filter="url(#glow)"/>
+  <path d="M260 704L422 536L548 612L724 364L846 444" fill="none" stroke="url(#gold)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M260 704L422 536L548 612L724 364L846 444" fill="none" stroke="#F2D878" stroke-opacity=".32" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <circle cx="422" cy="536" r="18" fill="#F2D878"/><circle cx="724" cy="364" r="18" fill="#6AE4FF"/>
+  <path d="M512 206V818M206 512H818" stroke="#EDE9E1" stroke-opacity=".11" stroke-width="4"/>
+  <text x="400" y="575" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="185" font-weight="700" fill="#EDE9E1" opacity=".95">S</text><text x="625" y="575" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="185" font-weight="700" fill="#EDE9E1" opacity=".95">D</text>
+  <path d="M305 832H719" stroke="#C9A227" stroke-width="8" stroke-linecap="round" opacity=".75"/>
+</svg>
