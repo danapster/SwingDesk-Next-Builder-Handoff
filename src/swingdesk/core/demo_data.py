@@ -193,9 +193,10 @@ def opportunity_rows() -> list[dict]:
 # ---------------------------------------------------------------------------
 # Runtime provider router
 # ---------------------------------------------------------------------------
-# The deterministic adapter above remains the safe test/development fallback.
-# Production attempts a real MT5 connection and routes this module's public API
-# to live broker metadata, ticks, bars, equity and positions when connected.
+# The deterministic adapter above is test/self-test data only.
+# Production is LIVE-REQUIRED: SwingDesk never substitutes demo quotes, bars,
+# positions, equity or engine results when MT5 is unavailable. An unavailable
+# terminal produces an empty/offline market-data surface instead.
 
 _demo_universe = universe
 _demo_symbol = symbol
@@ -284,7 +285,7 @@ def is_live() -> bool:
 
 
 def source_label() -> str:
-    return "LIVE MT5" if is_live() else "DEMO FALLBACK"
+    return "LIVE MT5" if is_live() else ("DEMO TEST DATA" if _force_demo() else "MT5 OFFLINE")
 
 
 def connection_status() -> dict:
@@ -311,37 +312,37 @@ def shutdown() -> None:
 def universe() -> list[SymbolRecord]:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.universe()
-    return _demo_universe()
+    return _demo_universe() if _force_demo() else []
 
 
 def symbol(broker_symbol: str) -> SymbolRecord | None:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.symbol(broker_symbol)
-    return _demo_symbol(broker_symbol)
+    return _demo_symbol(broker_symbol) if _force_demo() else None
 
 
 def bars(broker_symbol: str, timeframe: str, count: int = 420) -> list[Bar]:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.bars(broker_symbol, timeframe, count)
-    return _demo_bars(broker_symbol, timeframe, count)
+    return _demo_bars(broker_symbol, timeframe, count) if _force_demo() else []
 
 
 def engine_results(broker_symbol: str, timeframe: str) -> list[EngineResult]:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.engine_results(broker_symbol, timeframe)
-    return _demo_engine_results(broker_symbol, timeframe)
+    return _demo_engine_results(broker_symbol, timeframe) if _force_demo() else []
 
 
 def set_watch(broker_symbol: str, visible: bool) -> bool:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.set_watch(broker_symbol, visible)
-    return _demo_set_watch(broker_symbol, visible)
+    return _demo_set_watch(broker_symbol, visible) if _force_demo() else False
 
 
 def tick() -> None:
     if _ensure_live() and _LIVE is not None:
         _LIVE.tick()
-    else:
+    elif _force_demo():
         _demo_tick()
     if not _force_demo():
         try:
@@ -354,13 +355,13 @@ def tick() -> None:
 def positions() -> list[Position]:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.positions()
-    return _demo_positions()
+    return _demo_positions() if _force_demo() else []
 
 
 def account_equity() -> float:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.account_equity()
-    return _demo_account_equity()
+    return _demo_account_equity() if _force_demo() else 0.0
 
 
 def calendar_events() -> list[CalendarEvent]:
@@ -407,4 +408,4 @@ def calendar_cache_status():
 def opportunity_rows() -> list[dict]:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.opportunity_rows()
-    return _demo_opportunity_rows()
+    return _demo_opportunity_rows() if _force_demo() else []
