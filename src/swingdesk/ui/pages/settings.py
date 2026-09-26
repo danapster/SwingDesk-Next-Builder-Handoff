@@ -116,8 +116,10 @@ class SettingsPage(QWidget):
         from ...core import demo_data
         from ...core.store import data_dir
         info = {
-            "app": "Swing Desk", "mode": "demo adapter",
+            "app": "Swing Desk", "mode": demo_data.source_label(),
             "universe_symbols": len(demo_data.universe()),
+            "mt5": demo_data.connection_status(),
+            "calendar_cache": str(demo_data.calendar_cache_status().path),
             "database": str(self.ctx.store.path),
             "data_dir": str(data_dir()),
             "settings": {k: self.ctx.setting(k) for k in
