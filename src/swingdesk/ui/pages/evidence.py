@@ -174,7 +174,7 @@ class EvidencePage(QWidget):
         self.chart.set_data(rec.canonical_name, self.timeframe, bars, self.active_layers())
         self.freshness.setText(
             f"{len(bars)} bars · refreshed just now · {rec.broker_symbol} @ "
-            f"{rec.bid:.5g} / {rec.ask:.5g} (demo)")
+            f"{rec.bid:.5g} / {rec.ask:.5g} ({demo_data.source_label()})")
         self.render_stack()
 
     # ----------------------------------------------------------------- views
