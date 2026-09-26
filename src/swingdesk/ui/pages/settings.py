@@ -75,6 +75,31 @@ class SettingsPage(QWidget):
         row.addWidget(self.start_page, 1)
         risk_card.layout().addLayout(row)
 
+        # macro policy
+        macro = Card("Macro policy provider")
+        self.root.addWidget(macro)
+        provider = QLabel(
+            "<b>Trading Economics</b> · policy-rate snapshot for USD, EUR, GBP, JPY, "
+            "CHF, CAD, AUD, NZD and ZAR. The Calendar & Macro page reads only the "
+            "local policy_rates.json cache.")
+        provider.setWordWrap(True)
+        macro.add(provider)
+        self.macro_status = QLabel("")
+        self.macro_status.setObjectName("Tiny")
+        self.macro_status.setWordWrap(True)
+        macro.add(self.macro_status)
+        hint = QLabel(
+            "API key setup (PowerShell, once): "
+            "[Environment]::SetEnvironmentVariable('SWINGDESK_TE_API_KEY','YOUR_KEY','User') "
+            "then restart SwingDesk.")
+        hint.setObjectName("Tiny")
+        hint.setWordWrap(True)
+        macro.add(hint)
+        self.btn_macro_refresh = QPushButton("Test & refresh policy rates")
+        self.btn_macro_refresh.clicked.connect(self.refresh_macro_policy)
+        macro.add(self.btn_macro_refresh)
+        self._render_macro_status()
+
         # diagnostics
         diag = Card("Diagnostics")
         self.root.addWidget(diag)
@@ -111,6 +136,29 @@ class SettingsPage(QWidget):
         self.ctx.set_setting("orbit_animation", "1" if self.orbit_check.isChecked() else "0")
         self.ctx.toast("Settings saved locally")
 
+    def _render_macro_status(self) -> None:
+        from ...core.macro_policy import shared_macro_policy_cache
+        status = shared_macro_policy_cache().status()
+        key = "detected" if status.api_key_configured else "NOT DETECTED"
+        downloaded = status.last_download or "never"
+        error = f" · last error: {status.last_error}" if status.last_error else ""
+        self.macro_status.setText(
+            f"API key: {key} · local cache: {status.path} · "
+            f"{status.rate_count} rates · last download: {downloaded}{error}")
+
+    def refresh_macro_policy(self) -> None:
+        from ...core.macro_policy import shared_macro_policy_cache
+        cache = shared_macro_policy_cache()
+        if not cache.status().api_key_configured:
+            self.ctx.toast(
+                "Set SWINGDESK_TE_API_KEY as a Windows user environment variable, "
+                "restart SwingDesk, then try again")
+            self._render_macro_status()
+            return
+        _changed, message = cache.refresh(force=True)
+        self._render_macro_status()
+        self.ctx.toast(message)
+
     def export_diagnostics(self) -> None:
         import json
         from ...core import demo_data
@@ -120,6 +168,9 @@ class SettingsPage(QWidget):
             "universe_symbols": len(demo_data.universe()),
             "mt5": demo_data.connection_status(),
             "calendar_cache": str(demo_data.calendar_cache_status().path),
+            "macro_policy_cache": __import__(
+                "swingdesk.core.macro_policy", fromlist=["shared_macro_policy_cache"]
+            ).shared_macro_policy_cache().status().__dict__,
             "database": str(self.ctx.store.path),
             "data_dir": str(data_dir()),
             "settings": {k: self.ctx.setting(k) for k in
@@ -131,4 +182,4 @@ class SettingsPage(QWidget):
         self.ctx.toast(f"Diagnostics exported → {path}")
 
     def refresh(self) -> None:
-        pass
+        self._render_macro_status()
