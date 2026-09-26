@@ -163,14 +163,23 @@ class SettingsPage(QWidget):
         import json
         from ...core import demo_data
         from ...core.store import data_dir
+        from ...core.macro_policy import shared_macro_policy_cache
+        macro_status = shared_macro_policy_cache().status()
         info = {
             "app": "Swing Desk", "mode": demo_data.source_label(),
             "universe_symbols": len(demo_data.universe()),
             "mt5": demo_data.connection_status(),
             "calendar_cache": str(demo_data.calendar_cache_status().path),
-            "macro_policy_cache": __import__(
-                "swingdesk.core.macro_policy", fromlist=["shared_macro_policy_cache"]
-            ).shared_macro_policy_cache().status().__dict__,
+            "macro_policy_cache": {
+                "path": str(macro_status.path),
+                "exists": macro_status.exists,
+                "rate_count": macro_status.rate_count,
+                "last_checked": macro_status.last_checked,
+                "last_download": macro_status.last_download,
+                "last_error": macro_status.last_error,
+                "provider": macro_status.provider,
+                "api_key_configured": macro_status.api_key_configured,
+            },
             "database": str(self.ctx.store.path),
             "data_dir": str(data_dir()),
             "settings": {k: self.ctx.setting(k) for k in
