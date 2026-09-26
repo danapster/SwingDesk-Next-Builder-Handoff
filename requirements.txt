@@ -1,6 +1,7 @@
 # Runtime
 PySide6>=6.6
 tzdata>=2024.1   # IANA timezone database (required on Windows, harmless elsewhere)
+MetaTrader5>=5.0.6180; platform_system == "Windows"   # live MT5 market data
 
 # Development / testing (optional)
 #   pip install -e ".[dev]"
