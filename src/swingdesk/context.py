@@ -40,8 +40,10 @@ class AppContext:
         self.events = EventHub()
         self.window = None            # set by MainWindow
         self.active_symbol: SymbolRecord | None = None
-        self.positions: list[Position] = demo_data.positions()
         self.terminal_path: str = store.get_setting("terminal_path", "")
+        demo_data.configure_terminal(self.terminal_path)
+        demo_data.connect_live(self.terminal_path)
+        self.positions: list[Position] = demo_data.positions()
         self.last_scan_iso: str = ""
 
     # ---------------------------------------------------------- navigation
