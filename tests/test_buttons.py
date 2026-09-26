@@ -443,6 +443,17 @@ def test_broker_mt5_unavailable_message_is_precise(make_app):
 
 
 # ---------------------------------------------------------------- settings
+def test_settings_page_uses_vertical_scroller(make_app):
+    from PySide6.QtCore import Qt
+
+    win = make_app()
+    page = win.pages["settings"]
+    assert page.scroll_area.widgetResizable() is True
+    assert page.scroll_area.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
+    assert page.scroll_area.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded
+    assert page.scroll_area.widget() is not None
+
+
 def test_settings_theme_change_applies_live(make_app):
     win = make_app()
     page = win.pages["settings"]
