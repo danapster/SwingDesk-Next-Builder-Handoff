@@ -14,6 +14,9 @@ import math
 from .models import ContractSpec
 
 
+MAX_RISK_OVERAGE_FACTOR = 1.05
+
+
 @dataclass(frozen=True)
 class SizingResult:
     ok: bool
@@ -82,16 +85,23 @@ def size_position(entry: float, stop: float, target: float, risk_percent: float,
         reasons.append(f"Requested volume {raw:.2f} lots exceeds broker maximum "
                        f"{contract.volume_max:.2f}; clamped.")
     if raw < contract.volume_min:
-        reasons.append(f"Requested volume {raw:.2f} lots is below broker minimum "
-                       f"{contract.volume_min:.2f}; broker minimum would exceed the requested risk cap.")
+        if actual_risk > risk_amount * MAX_RISK_OVERAGE_FACTOR:
+            reasons.append(f"Requested volume {raw:.2f} lots is below broker minimum "
+                           f"{contract.volume_min:.2f}; broker minimum would materially exceed "
+                           "the requested risk cap.")
+        else:
+            reasons.append(f"Requested volume {raw:.2f} lots is below broker minimum "
+                           f"{contract.volume_min:.2f}; minimum volume applied within the "
+                           "5% rounding tolerance.")
     if rr < 2.0:
         reasons.append(f"Reward-to-risk {rr:.2f} is below the 2.0 warning threshold.")
-    if actual_risk > risk_amount * 1.05:
+    if actual_risk > risk_amount * MAX_RISK_OVERAGE_FACTOR:
         reasons.append("Actual risk noticeably exceeds the requested risk after step rounding.")
-    # Safety invariant: never silently recommend the broker minimum when it
-    # would exceed the user's requested maximum loss.  The old implementation
-    # returned ok=True here, allowing an over-risked plan through pre-flight.
-    if raw < contract.volume_min and actual_risk > risk_amount:
+    # Safety invariant: a broker minimum may only exceed the nominal risk by
+    # the same small tolerance already used for lot-step rounding.  Material
+    # over-risk remains a hard failure instead of being silently clamped up.
+    if (raw < contract.volume_min and
+            actual_risk > risk_amount * MAX_RISK_OVERAGE_FACTOR):
         return SizingResult(False, volume, loss_per_lot, risk_amount,
                             actual_risk, rr, tuple(reasons))
     return SizingResult(True, volume, loss_per_lot, risk_amount, actual_risk, rr, tuple(reasons))

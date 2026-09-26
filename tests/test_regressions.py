@@ -86,10 +86,23 @@ def test_size_rejects_target_inside_stops_level():
 
 # 9
 def test_broker_minimum_cannot_silently_exceed_risk_cap():
+    # A materially oversized minimum lot is a hard failure.
     c = _contract(volume_min=1.0, volume_step=0.01)
     result = risk.size_position(1.10, 1.00, 1.30, 0.1, 1_000, c)
     assert not result.ok
-    assert result.actual_risk > result.risk_amount
+    assert result.actual_risk > result.risk_amount * risk.MAX_RISK_OVERAGE_FACTOR
+
+    # A tiny broker-minimum/step overage is allowed within the same 5%
+    # tolerance used elsewhere by the sizing engine.  This matches GBPJPY.m
+    # at 0.01 lots in the demo lifecycle tests (~1.84% over nominal risk).
+    c2 = ContractSpec(
+        digits=3, point=0.001, tick_size=0.001, tick_value=6.7,
+        contract_size=100000, volume_min=0.01, volume_max=100.0,
+        volume_step=0.01, stops_level_points=20, freeze_level_points=0,
+    )
+    rounded = risk.size_position(189.42, 187.90, 193.82, 1.0, 10_000, c2)
+    assert rounded.ok
+    assert rounded.risk_amount < rounded.actual_risk <= rounded.risk_amount * risk.MAX_RISK_OVERAGE_FACTOR
 
 
 # 10

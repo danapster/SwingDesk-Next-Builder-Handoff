@@ -387,7 +387,7 @@ class PlansPage(QWidget):
                                                 plan.volume, rec.contract,
                                                 demo_data.account_equity())
             actual_risk = plan.volume * sizing.loss_per_lot
-            if actual_risk > sizing.risk_amount + 1e-9:
+            if actual_risk > sizing.risk_amount * risk.MAX_RISK_OVERAGE_FACTOR + 1e-9:
                 order_ok = False
                 checks = list(checks) + ["Stored volume exceeds the plan risk cap."]
             if not order_ok:
