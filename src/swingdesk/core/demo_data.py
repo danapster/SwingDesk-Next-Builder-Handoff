@@ -188,3 +188,211 @@ def opportunity_rows() -> list[dict]:
         })
     rows.sort(key=lambda r: r["strength"], reverse=True)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Runtime provider router
+# ---------------------------------------------------------------------------
+# The deterministic adapter above remains the safe test/development fallback.
+# Production attempts a real MT5 connection and routes this module's public API
+# to live broker metadata, ticks, bars, equity and positions when connected.
+
+_demo_universe = universe
+_demo_symbol = symbol
+_demo_bars = bars
+_demo_engine_results = engine_results
+_demo_set_watch = set_watch
+_demo_tick = tick
+_demo_positions = positions
+_demo_account_equity = account_equity
+_demo_calendar_events = calendar_events
+_demo_opportunity_rows = opportunity_rows
+
+_LIVE = None
+_LIVE_ATTEMPTED = False
+_TERMINAL_PATH = ""
+_LIVE_ERROR = ""
+
+
+def _force_demo() -> bool:
+    import os
+    import sys
+    if os.environ.get("SWINGDESK_FORCE_DEMO", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return "pytest" in sys.modules or "--self-test" in sys.argv
+
+
+def configure_terminal(path: str) -> None:
+    global _TERMINAL_PATH
+    _TERMINAL_PATH = path or ""
+
+
+def connect_live(terminal_path: str | None = None, force: bool = False) -> bool:
+    """Connect the active market-data provider to MetaTrader 5."""
+    global _LIVE, _LIVE_ATTEMPTED, _LIVE_ERROR, _TERMINAL_PATH
+    if terminal_path is not None:
+        _TERMINAL_PATH = terminal_path
+    if _force_demo() and not force:
+        _LIVE_ATTEMPTED = True
+        _LIVE_ERROR = "demo mode forced for test/development session"
+        return False
+    try:
+        from .mt5_live import MT5LiveProvider
+        provider = _LIVE if _LIVE is not None else MT5LiveProvider()
+        _LIVE_ATTEMPTED = True
+        if provider.connect(_TERMINAL_PATH):
+            _LIVE = provider
+            _LIVE_ERROR = ""
+            return True
+        _LIVE = None
+        _LIVE_ERROR = provider.last_error
+        return False
+    except Exception as exc:
+        _LIVE = None
+        _LIVE_ATTEMPTED = True
+        _LIVE_ERROR = f"{type(exc).__name__}: {exc}"
+        return False
+
+
+def _ensure_live() -> bool:
+    # A force-connected provider remains live even under pytest. This lets
+    # integration tests explicitly exercise the MT5 route while ordinary tests
+    # stay deterministic.
+    if _LIVE is not None and getattr(_LIVE, "connected", False):
+        return True
+    if _force_demo():
+        return False
+    if not _LIVE_ATTEMPTED:
+        return connect_live(_TERMINAL_PATH)
+    return False
+
+
+def is_live() -> bool:
+    return _ensure_live()
+
+
+def source_label() -> str:
+    return "LIVE MT5" if is_live() else "DEMO FALLBACK"
+
+
+def connection_status() -> dict:
+    if is_live() and _LIVE is not None:
+        return _LIVE.connection_info()
+    return {"connected": False, "error": _LIVE_ERROR or "MT5 is not connected"}
+
+
+def last_error() -> str:
+    if _LIVE is not None and getattr(_LIVE, "last_error", ""):
+        return str(_LIVE.last_error)
+    return _LIVE_ERROR
+
+
+def shutdown() -> None:
+    global _LIVE
+    if _LIVE is not None:
+        try:
+            _LIVE.shutdown()
+        finally:
+            _LIVE = None
+
+
+def universe() -> list[SymbolRecord]:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.universe()
+    return _demo_universe()
+
+
+def symbol(broker_symbol: str) -> SymbolRecord | None:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.symbol(broker_symbol)
+    return _demo_symbol(broker_symbol)
+
+
+def bars(broker_symbol: str, timeframe: str, count: int = 420) -> list[Bar]:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.bars(broker_symbol, timeframe, count)
+    return _demo_bars(broker_symbol, timeframe, count)
+
+
+def engine_results(broker_symbol: str, timeframe: str) -> list[EngineResult]:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.engine_results(broker_symbol, timeframe)
+    return _demo_engine_results(broker_symbol, timeframe)
+
+
+def set_watch(broker_symbol: str, visible: bool) -> bool:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.set_watch(broker_symbol, visible)
+    return _demo_set_watch(broker_symbol, visible)
+
+
+def tick() -> None:
+    if _ensure_live() and _LIVE is not None:
+        _LIVE.tick()
+    else:
+        _demo_tick()
+    if not _force_demo():
+        try:
+            from .calendar_cache import shared_calendar_cache
+            shared_calendar_cache().maybe_refresh_async()
+        except Exception:
+            pass
+
+
+def positions() -> list[Position]:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.positions()
+    return _demo_positions()
+
+
+def account_equity() -> float:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.account_equity()
+    return _demo_account_equity()
+
+
+def calendar_events() -> list[CalendarEvent]:
+    # Runtime UI reads calendar events from the local JSON cache only. Tests and
+    # --self-test use deterministic events and never touch the network.
+    if _force_demo():
+        return _demo_calendar_events()
+    try:
+        from .calendar_cache import shared_calendar_cache
+        cache = shared_calendar_cache()
+        cache.ensure_local()
+        events = cache.load_events()
+    except Exception:
+        return []
+
+    recs = universe()
+    out: list[CalendarEvent] = []
+    for event in events:
+        affects = tuple(
+            r.canonical_name for r in recs
+            if event.currency and event.currency in (r.base_currency, r.profit_currency)
+        )[:12]
+        out.append(CalendarEvent(
+            time_utc=event.time_utc,
+            title=event.title,
+            currency=event.currency,
+            impact=event.impact,
+            zone=event.zone,
+            affects=affects,
+        ))
+    return out
+
+
+def refresh_calendar(force: bool = False) -> tuple[bool, str]:
+    from .calendar_cache import shared_calendar_cache
+    return shared_calendar_cache().refresh(force=force)
+
+
+def calendar_cache_status():
+    from .calendar_cache import shared_calendar_cache
+    return shared_calendar_cache().status()
+
+
+def opportunity_rows() -> list[dict]:
+    if _ensure_live() and _LIVE is not None:
+        return _LIVE.opportunity_rows()
+    return _demo_opportunity_rows()
