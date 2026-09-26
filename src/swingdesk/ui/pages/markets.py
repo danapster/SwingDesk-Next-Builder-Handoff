@@ -31,7 +31,7 @@ class MarketsPage(QWidget):
         self.root.addWidget(heading(
             "Markets",
             "Discovery, never assumption. Four explicit scopes — never conflated.",
-            "MT5 universe · demo adapter"))
+            f"MT5 universe · {demo_data.source_label()}"))
 
         filters = QHBoxLayout()
         self.scope_combo = QComboBox()
@@ -133,7 +133,7 @@ class MarketsPage(QWidget):
     def refresh_discovery(self) -> None:
         demo_data.tick()
         self.render_table()
-        self.ctx.toast("Universe refreshed — scope preserved")
+        self.ctx.toast(f"Universe refreshed from {demo_data.source_label()} — scope preserved")
 
     def view_selected(self) -> None:
         rec = self.selected_symbol()
