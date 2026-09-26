@@ -1,0 +1,27 @@
+name: SwingDesk tests
+
+on:
+  push:
+    branches:
+      - main
+      - arena/01a0de62-swingdesk-next-builder-handoff
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install SwingDesk and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run test suite
+        run: python -m pytest -q
+      - name: Run isolated headless self-test
+        run: python -m swingdesk --self-test
