@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.ctx = ctx
         ctx.window = self
-        self.setWindowTitle("Swing Desk — decision workspace (demo data)")
+        self.setWindowTitle("Swing Desk — live MT5 decision workspace")
         self.resize(1440, 880)
         self.pages: dict[str, QWidget] = {}
         self.nav_buttons: dict[str, SidebarButton] = {}
@@ -102,12 +102,13 @@ class MainWindow(QMainWindow):
         # connection + clocks footer
         self.status_dot = QLabel("●")
         self.status_dot.setStyleSheet("color:#C9A96A; font-size:12px;")
-        self.status_text = QLabel("DEMO ADAPTER · MT5 not required")
+        self.status_text = QLabel(demo_data.source_label())
         self.status_text.setStyleSheet("font-size:11px; color:#8D9098;")
         srow = QHBoxLayout()
         srow.addWidget(self.status_dot)
         srow.addWidget(self.status_text)
         sv.addLayout(srow)
+        self._sync_data_source_status()
         self.clock_label = QLabel("—")
         self.clock_label.setStyleSheet(f"font-family:'{mono()}'; font-size:11px; color:#8D9098;")
         self.clock_label.setWordWrap(True)
@@ -149,6 +150,16 @@ class MainWindow(QMainWindow):
         self.set_orbit_enabled(ctx.setting("orbit_animation") != "0")
         start = ctx.setting("start_page")
         self.navigate(start if start in ALL_PAGES else "radar")
+
+    def _sync_data_source_status(self) -> None:
+        if demo_data.is_live():
+            info = demo_data.connection_status()
+            server = info.get("server") or info.get("company") or "connected"
+            self.status_dot.setStyleSheet("color:#6FCF97; font-size:12px;")
+            self.status_text.setText(f"LIVE MT5 · {server}")
+        else:
+            self.status_dot.setStyleSheet("color:#C9A96A; font-size:12px;")
+            self.status_text.setText("DEMO FALLBACK · MT5 offline")
 
     # ------------------------------------------------------------ navigation
     def _nav_badge(self, key: str) -> str:
@@ -244,8 +255,9 @@ class MainWindow(QMainWindow):
             f"SAST {clk('Africa/Johannesburg')}")
 
     def _tick_data(self) -> None:
-        """Demo price advance + deterministic alert evaluation (§14)."""
+        """Refresh the active data source and evaluate deterministic alerts."""
         demo_data.tick()
+        self._sync_data_source_status()
         for rule in self.ctx.store.alerts():
             if not rule.enabled or rule.fired_at:
                 continue
@@ -280,6 +292,7 @@ class MainWindow(QMainWindow):
         self._clock_timer.stop()
         self._data_timer.stop()
         self.brand.stop()
+        demo_data.shutdown()
         super().closeEvent(event)
 
 
