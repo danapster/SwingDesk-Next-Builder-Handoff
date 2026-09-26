@@ -86,12 +86,12 @@ class BrokerPage(QWidget):
                 "Prices, contracts, candles, equity and positions are live. "
                 "SwingDesk does not send or close broker orders in this build.")
         else:
-            self.status_badge.set_kind("gold", "DEMO FALLBACK")
+            self.status_badge.set_kind("bear", "MT5 OFFLINE")
             detail = demo_data.last_error() or "MT5 has not connected."
             self.status_detail.setText(
-                f"Live MetaTrader5 is unavailable: {detail}. SwingDesk is using the deterministic "
-                "demo market-data fallback. Precise action: open and log into your broker's "
-                "MetaTrader 5 terminal, then reconnect here.")
+                f"Live MetaTrader5 is unavailable: {detail}. Live-required mode is active, so "
+                "SwingDesk will not substitute demo prices, candles, positions or equity. "
+                "Precise action: open and log into your broker's MetaTrader 5 terminal, then reconnect here.")
 
     def _render_disc(self) -> None:
         recs = demo_data.universe()
@@ -149,7 +149,7 @@ class BrokerPage(QWidget):
             self.ctx.events.positions_changed.emit()
             self.ctx.toast("Live MT5 market data connected")
         else:
-            self.ctx.toast("MT5 connection failed — demo fallback remains active")
+            self.ctx.toast("MT5 connection failed — live market data remains unavailable")
         self._render_status()
         self._render_disc()
         self._render_contract()
