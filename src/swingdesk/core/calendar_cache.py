@@ -221,7 +221,19 @@ class CalendarCache:
 
     def maybe_refresh_async(self) -> bool:
         force = self.weekly_refresh_due()
-        if not force and not self.hourly_check_due():
+        hourly_due = self.hourly_check_due()
+        # The first run after the Monday 00:00 SAST boundary bypasses the normal
+        # hourly cadence. If that forced attempt fails, last_checked is now
+        # inside the new week and subsequent retries are throttled to hourly.
+        last_checked = _parse_iso(str(self._read_meta().get("last_checked", "")))
+        checked_this_week = (
+            last_checked is not None
+            and last_checked.astimezone(SAST) >= self._week_anchor()
+        )
+        if force:
+            if checked_this_week and not hourly_due:
+                return False
+        elif not hourly_due:
             return False
         if self._refresh_thread is not None and self._refresh_thread.is_alive():
             return False
