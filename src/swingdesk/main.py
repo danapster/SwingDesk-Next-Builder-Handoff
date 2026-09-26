@@ -66,7 +66,7 @@ def _self_test() -> int:
                 print("  -", f)
             return 1
         print(f"SELF-TEST OK — {len(ALL_PAGES)} pages routed, all nav buttons active-checked, "
-              "demo adapter online, isolated temporary store writable.")
+              "deterministic test data route online, isolated temporary store writable.")
         return 0
 
 
