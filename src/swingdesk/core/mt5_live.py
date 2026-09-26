@@ -87,6 +87,7 @@ class MT5LiveProvider:
             if ti is None or ai is None:
                 return {}
             return {
+                "connected": True,
                 "terminal": getattr(ti, "name", "MetaTrader 5"),
                 "company": getattr(ti, "company", ""),
                 "server": getattr(ai, "server", ""),
@@ -230,8 +231,10 @@ class MT5LiveProvider:
                         broker_symbol, getattr(self.mt5, attr), 0, int(count))
                 except Exception:
                     pass
+            if rates is None:
+                return []
             out: list[Bar] = []
-            for r in rates or ():
+            for r in rates:
                 def val(key, default=0):
                     try:
                         return r[key]
