@@ -90,13 +90,90 @@ class CalendarPage(QWidget):
         self.render_events()
 
     def _render_macro(self) -> None:
+        from ...core.macro_policy import shared_macro_policy_cache
+
         lay = self.macro_card.layout()
         clear_layout(lay)
-        lay.addWidget(EmptyState(
-            "Macro policy provider not connected",
-            "The Forex Factory event calendar is active. Central-bank stance and rate "
-            "differentials remain unknown until a separate policy provider is connected.",
-            "Open settings", lambda: self.ctx.navigate("settings")))
+        cache = shared_macro_policy_cache()
+        rates = cache.load_rates()
+        status = cache.status()
+
+        if not rates:
+            cache.maybe_refresh_async()
+            detail = (
+                "Set the SWINGDESK_TE_API_KEY Windows user environment variable, restart "
+                "SwingDesk, then use Refresh policy rates. The API key is never written "
+                "into the repository."
+                if not status.api_key_configured else
+                "The Trading Economics API key is detected, but no valid local policy-rate "
+                "cache exists yet. Use Refresh policy rates to download it."
+            )
+            if status.last_error:
+                detail += f" Last provider error: {status.last_error}."
+            lay.addWidget(EmptyState(
+                "Macro policy provider not connected",
+                detail,
+                "Open settings", lambda: self.ctx.navigate("settings")))
+            return
+
+        downloaded = status.last_download or "unknown"
+        top = QLabel(
+            f"Provider: <b>{status.provider}</b> · local cache: {status.path} · "
+            f"{len(rates)} policy rates · last download: {downloaded}")
+        top.setObjectName("Tiny")
+        top.setWordWrap(True)
+        lay.addWidget(top)
+
+        active = self.ctx.active_symbol
+        diff = None
+        if active is not None:
+            diff = cache.differential(active.base_currency, active.profit_currency)
+        if active is not None and diff is not None:
+            diff_label = QLabel(
+                f"<b>{active.base_currency}/{active.profit_currency} policy-rate differential:</b> "
+                f"{diff:+.2f} percentage points "
+                f"({active.base_currency} minus {active.profit_currency})")
+        else:
+            diff_label = QLabel(
+                "Select an FX market to display its base-minus-quote policy-rate differential.")
+        diff_label.setWordWrap(True)
+        lay.addWidget(diff_label)
+
+        note = QLabel(
+            "Stance is mechanical: HIKING means the latest policy rate is above the previous "
+            "reading, EASING means below it, and HOLDING means unchanged. It is not a "
+            "forward-guidance or trading recommendation.")
+        note.setObjectName("Tiny")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        table = QTableWidget(len(rates), 6)
+        table.setHorizontalHeaderLabels(
+            ["CCY", "Central bank", "Rate", "Previous", "Stance", "Effective"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        for i, rate in enumerate(rates):
+            table.setItem(i, 0, QTableWidgetItem(rate.currency))
+            table.setItem(i, 1, QTableWidgetItem(rate.central_bank))
+            table.setItem(i, 2, QTableWidgetItem(f"{rate.rate:.2f}%"))
+            table.setItem(i, 3, QTableWidgetItem(f"{rate.previous_rate:.2f}%"))
+            kind = "bull" if rate.stance == "HIKING" else "bear" if rate.stance == "EASING" else "gold"
+            table.setCellWidget(i, 4, Badge(rate.stance, kind))
+            table.setItem(i, 5, QTableWidgetItem(rate.effective_date[:10] or "—"))
+        table.setMinimumHeight(min(330, 78 + len(rates) * 30))
+        lay.addWidget(table)
+
+        actions = QHBoxLayout()
+        refresh = QPushButton("Refresh policy rates")
+        refresh.clicked.connect(self.force_macro_refresh)
+        settings = QPushButton("Provider settings")
+        settings.clicked.connect(lambda: self.ctx.navigate("settings"))
+        actions.addWidget(refresh)
+        actions.addWidget(settings)
+        actions.addStretch(1)
+        lay.addLayout(actions)
+
 
     def _render_cache_status(self) -> None:
         status = demo_data.calendar_cache_status()
@@ -142,6 +219,13 @@ class CalendarPage(QWidget):
         _changed, message = demo_data.refresh_calendar(force=True)
         self.render_events()
         self.ctx.toast(message)
+
+    def force_macro_refresh(self) -> None:
+        from ...core.macro_policy import shared_macro_policy_cache
+        _changed, message = shared_macro_policy_cache().refresh(force=True)
+        self._render_macro()
+        self.ctx.toast(message)
+
 
     def _refresh_if_cache_changed(self) -> None:
         status = demo_data.calendar_cache_status()
