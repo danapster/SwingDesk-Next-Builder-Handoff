@@ -53,7 +53,7 @@ class RadarPage(QWidget):
         self.root.addWidget(self.thesis_card)
 
         stats = QHBoxLayout()
-        self.stat_scanned = Stat("Markets scanned", "—", "demo universe")
+        self.stat_scanned = Stat("Markets scanned", "—", "active data source")
         self.stat_thesis = Stat("Active theses", "—", "waiting, not forcing")
         self.stat_event = Stat("Next event", "—", "dual-clock calendar")
         self.stat_window = Stat("Session", "—", "live clock")
@@ -78,10 +78,10 @@ class RadarPage(QWidget):
         self.ctx.last_scan_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self._scan_count = getattr(self, "_scan_count", 0) + 1
         self.scan_label.setText(f"Scan #{self._scan_count} · "
-                                f"{self.ctx.last_scan_iso} UTC · demo data")
+                                f"{self.ctx.last_scan_iso} UTC · {demo_data.source_label()}")
         self._render_opportunities()
         if not silent:
-            self.ctx.toast("Discovery refreshed (demo adapter)")
+            self.ctx.toast(f"Discovery refreshed ({demo_data.source_label()})")
         self._render_scorecard()
 
     def _render_opportunities(self) -> None:
