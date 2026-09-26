@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ...app_globals import active_theme
+from ...core import demo_data
 from ...core.models import LifecycleState
 from ...core.store import now_iso
 from ..theme import mono
@@ -24,12 +25,12 @@ class PositionsPage(QWidget):
 
         self.root.addWidget(heading(
             "Positions",
-            "Positions mirrored with their original thesis attached. Demo adapter — "
-            "clearly labelled, never presented as a live broker account.",
+            "Live MT5 positions are mirrored read-only with their original thesis attached. "
+            "Broker order closing remains disabled in live mode.",
             "Execution & management"))
 
         top = QHBoxLayout()
-        self.demo_badge = Badge("DEMO DATA", "gold")
+        self.demo_badge = Badge(demo_data.source_label(), "bull" if demo_data.is_live() else "gold")
         top.addWidget(QLabel("Source"))
         top.addWidget(self.demo_badge)
         top.addStretch(1)
@@ -44,7 +45,7 @@ class PositionsPage(QWidget):
 
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Market", "Side", "Broker symbol", "Volume", "Entry", "Now", "P/L (demo)", ""])
+            ["Market", "Side", "Broker symbol", "Volume", "Entry", "Now", "P/L", ""])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -60,10 +61,16 @@ class PositionsPage(QWidget):
 
         ctx.events.positions_changed.connect(self.render_positions)
         ctx.events.plans_changed.connect(self.render_theses)
+        ctx.events.data_ticked.connect(self.render_positions)
         self.render_positions()
 
     # ---------------------------------------------------------------- render
     def render_positions(self) -> None:
+        if demo_data.is_live():
+            self.ctx.positions = demo_data.positions()
+        self.demo_badge.set_kind("bull" if demo_data.is_live() else "gold", demo_data.source_label())
+        self.btn_close_all.setEnabled(not demo_data.is_live())
+        self.btn_close_all.setToolTip("Live broker execution is disabled" if demo_data.is_live() else "")
         self.table.setRowCount(len(self.ctx.positions))
         for i, pos in enumerate(self.ctx.positions):
             self.table.setItem(i, 0, QTableWidgetItem(pos.canonical_name))
@@ -82,6 +89,8 @@ class PositionsPage(QWidget):
             close_btn = QPushButton("Close")
             close_btn.setStyleSheet("padding:4px 10px;")
             close_btn.clicked.connect(lambda _=False, ticket=pos.ticket: self.close_one(ticket))
+            close_btn.setEnabled(not demo_data.is_live())
+            close_btn.setToolTip("Live broker execution is disabled" if demo_data.is_live() else "")
             self.table.setCellWidget(i, 7, close_btn)
         self.render_risk()
         self.render_theses()
@@ -90,10 +99,10 @@ class PositionsPage(QWidget):
         lay = self.risk_card.layout()
         clear_layout(lay)
         open_pl = sum(p.profit for p in self.ctx.positions)
-        open_risk = sum(0.5 for _ in self.ctx.positions)  # demo stand-in per position
+        equity = demo_data.account_equity()
         for label, value in (("Open positions", str(len(self.ctx.positions))),
-                             ("Open P/L (demo)", f"{open_pl:+,.2f}"),
-                             ("Equity", f"{10_000 + open_pl:,.2f}")):
+                             ("Open P/L", f"{open_pl:+,.2f}"),
+                             ("Equity", f"{equity:,.2f}")):
             row = QLabel(f"<span style='color:{active_theme().muted}'>{label}</span>&nbsp;&nbsp;"
                          f"<b style='font-family:'{mono()}''>{value}</b>")
             lay.addWidget(row)
@@ -118,6 +127,9 @@ class PositionsPage(QWidget):
 
     # --------------------------------------------------------------- actions
     def close_one(self, ticket: int) -> None:
+        if demo_data.is_live():
+            self.ctx.toast("Live MT5 positions are read-only — order closing is disabled")
+            return
         pos = next((p for p in self.ctx.positions if p.ticket == ticket), None)
         if pos is None:
             return
@@ -128,6 +140,9 @@ class PositionsPage(QWidget):
         self._close([pos])
 
     def close_all(self) -> None:
+        if demo_data.is_live():
+            self.ctx.toast("Live MT5 positions are read-only — bulk close is disabled")
+            return
         if not self.ctx.positions:
             self.ctx.toast("Nothing to close")
             return
