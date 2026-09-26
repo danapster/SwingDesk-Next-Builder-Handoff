@@ -7,7 +7,7 @@ name = "swingdesk"
 version = "0.1.0"
 description = "Swing Desk — live MetaTrader 5 swing-trading decision workstation"
 requires-python = ">=3.10"
-dependencies = ["PySide6>=6.6", "tzdata>=2024.1", "MetaTrader5>=5.0.6180; platform_system == \'Windows\'"]
+dependencies = ["PySide6>=6.6", "tzdata>=2024.1", 'MetaTrader5>=5.0.6180; platform_system == "Windows"']
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-qt"]
