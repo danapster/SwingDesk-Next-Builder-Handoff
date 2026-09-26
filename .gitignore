@@ -1,0 +1,29 @@
+# Installed dependencies and virtual environments
+node_modules/
+.venv/
+venv/
+
+# Generated builds and caches
+.next/
+out/
+dist/
+build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+.coverage
+htmlcov/
+*.tsbuildinfo
+
+# Local credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Local OS files
+.DS_Store
+Thumbs.db
