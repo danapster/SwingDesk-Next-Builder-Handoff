@@ -50,7 +50,8 @@ class CandleChart(QWidget):
         self.update()
 
     def watermark(self) -> str:
-        return f"DEMO DATA · {self._symbol_label} · {self._timeframe}"
+        from ..core import demo_data
+        return f"{demo_data.source_label()} · {self._symbol_label} · {self._timeframe}"
 
     # -------------------------------------------------------------- helpers
     def _visible(self) -> list[Bar]:
