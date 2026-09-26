@@ -114,3 +114,46 @@ def test_mt5_connection_info_identifies_live_account(monkeypatch):
     assert info["connected"] is True
     assert info["server"] == "Broker-Live"
     assert info["login"] == 1234
+
+
+def test_production_mode_never_falls_back_to_demo_market_data(monkeypatch):
+    from swingdesk.core import demo_data
+
+    monkeypatch.setattr(demo_data, "_force_demo", lambda: False)
+    monkeypatch.setattr(demo_data, "_LIVE", None)
+    monkeypatch.setattr(demo_data, "_LIVE_ATTEMPTED", True)
+    monkeypatch.setattr(demo_data, "_LIVE_ERROR", "terminal offline")
+
+    assert demo_data.source_label() == "MT5 OFFLINE"
+    assert demo_data.universe() == []
+    assert demo_data.symbol("EURUSD.a") is None
+    assert demo_data.bars("EURUSD.a", "D1", 10) == []
+    assert demo_data.engine_results("EURUSD.a", "D1") == []
+    assert demo_data.positions() == []
+    assert demo_data.account_equity() == 0.0
+    assert demo_data.opportunity_rows() == []
+
+
+def test_calendar_same_week_content_change_replaces_local_json(tmp_path, monkeypatch):
+    from io import BytesIO
+
+    path = tmp_path / "ff_calendar_thisweek.json"
+    path.write_text(json.dumps(SAMPLE), encoding="utf-8")
+    cache = CalendarCache(path)
+    changed = [{**SAMPLE[0], "forecast": "2.4%"}]
+    raw = json.dumps(changed).encode("utf-8")
+
+    class Response:
+        headers = {}
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+        def read(self):
+            return raw
+
+    monkeypatch.setattr("swingdesk.core.calendar_cache.urlopen", lambda *_a, **_k: Response())
+    updated, message = cache.refresh(force=True)
+    assert updated is True
+    assert "updated" in message
+    assert json.loads(path.read_text(encoding="utf-8"))[0]["forecast"] == "2.4%"
