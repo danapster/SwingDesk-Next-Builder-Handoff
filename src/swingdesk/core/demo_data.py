@@ -350,6 +350,11 @@ def tick() -> None:
             shared_calendar_cache().maybe_refresh_async()
         except Exception:
             pass
+        try:
+            from .macro_policy import shared_macro_policy_cache
+            shared_macro_policy_cache().maybe_refresh_async()
+        except Exception:
+            pass
 
 
 def positions() -> list[Position]:
