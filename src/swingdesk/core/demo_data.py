@@ -236,6 +236,18 @@ def connect_live(terminal_path: str | None = None, force: bool = False) -> bool:
         _LIVE_ATTEMPTED = True
         _LIVE_ERROR = "demo mode forced for test/development session"
         return False
+    if _force_demo() and force:
+        # Installing the real MetaTrader5 wheel on CI must not make a generic
+        # button-click test attempt to discover/start a desktop terminal.
+        # Explicit integration tests can inject a lightweight fake object into
+        # sys.modules["MetaTrader5"], which is intentionally not ModuleType.
+        import sys
+        import types
+        injected = sys.modules.get("MetaTrader5")
+        if injected is None or isinstance(injected, types.ModuleType):
+            _LIVE_ATTEMPTED = True
+            _LIVE_ERROR = "real MT5 terminal initialization is disabled under tests"
+            return False
     try:
         from .mt5_live import MT5LiveProvider
         provider = _LIVE if _LIVE is not None else MT5LiveProvider()
