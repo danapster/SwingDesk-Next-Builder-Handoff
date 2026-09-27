@@ -117,19 +117,48 @@ class EvidencePage(QWidget):
 
     # ------------------------------------------------------------------ data
     def current_record(self):
+        """Resolve the currently selected broker symbol to a fresh live record.
+
+        Combo-box state is keyed by broker_symbol rather than the complete
+        SymbolRecord. Live MT5 records are recreated frequently and their
+        bid/ask values can change between refreshes, so object/value equality
+        is not a stable selection key.
+        """
         idx = self.symbol_combo.currentIndex()
-        if idx < 0:
-            return self.ctx.active_symbol or demo_data.universe()[0]
-        return self.symbol_combo.itemData(idx)
+        broker_symbol = self.symbol_combo.itemData(idx) if idx >= 0 else None
+
+        if broker_symbol:
+            rec = demo_data.symbol(str(broker_symbol))
+            if rec is not None:
+                return rec
+
+        active = self.ctx.active_symbol
+        if active is not None:
+            rec = demo_data.symbol(active.broker_symbol)
+            return rec or active
+
+        recs = demo_data.universe()
+        return recs[0] if recs else None
 
     def load_symbol_combo(self) -> None:
         recs = demo_data.universe()
+        active_key = (
+            self.ctx.active_symbol.broker_symbol
+            if self.ctx.active_symbol is not None else
+            (str(self.symbol_combo.currentData()) if self.symbol_combo.currentIndex() >= 0 else "")
+        )
+
         self.symbol_combo.blockSignals(True)
         self.symbol_combo.clear()
         for r in recs:
-            self.symbol_combo.addItem(f"{r.canonical_name}  ({r.broker_symbol})", r)
-        if self.ctx.active_symbol:
-            i = self.symbol_combo.findData(self.ctx.active_symbol)
+            # Store a stable broker identifier, not the mutable live snapshot.
+            self.symbol_combo.addItem(
+                f"{r.canonical_name}  ({r.broker_symbol})",
+                r.broker_symbol,
+            )
+
+        if active_key:
+            i = self.symbol_combo.findData(active_key)
             if i >= 0:
                 self.symbol_combo.setCurrentIndex(i)
         self.symbol_combo.blockSignals(False)
@@ -155,6 +184,8 @@ class EvidencePage(QWidget):
 
     def active_layers(self) -> list[EvidenceLevel]:
         rec = self.current_record()
+        if rec is None:
+            return []
         results = demo_data.engine_results(rec.broker_symbol, self.timeframe)
         ids: list[str] = []
         for name, engine_ids in LAYER_SOURCES.items():
@@ -182,6 +213,10 @@ class EvidencePage(QWidget):
         lay = self.stack_card.layout()
         clear_layout(lay)
         rec = self.current_record()
+        if rec is None:
+            self.status_row.setText(
+                "<b>MT5 market data unavailable.</b> Select/reconnect a live broker symbol.")
+            return
         results = demo_data.engine_results(rec.broker_symbol, self.timeframe)
         shown = 0
         for r in results:
@@ -217,13 +252,21 @@ class EvidencePage(QWidget):
         self.ctx.toast("Chart reset to fit")
 
     def export_chart(self) -> None:
+        rec = self.current_record()
+        if rec is None:
+            self.ctx.toast("No live market selected")
+            return
         pix = self.chart.grab()
-        path = self.ctx.exports_dir() / f"chart-{self.current_record().broker_symbol.replace('.', '_')}-{self.timeframe}.png"
+        path = self.ctx.exports_dir() / (
+            f"chart-{rec.broker_symbol.replace('.', '_')}-{self.timeframe}.png")
         pix.save(str(path))
         self.ctx.toast(f"Chart exported → {path.name}")
 
     def create_thesis(self) -> None:
         rec = self.current_record()
+        if rec is None:
+            self.ctx.toast("No live market selected")
+            return
         self.ctx.set_active_symbol(rec)
         self.ctx.navigate("plans")
 
