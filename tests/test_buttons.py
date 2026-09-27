@@ -38,7 +38,7 @@ def test_radar_opportunity_opens_evidence_for_that_market(make_app):
     assert win.stack.currentWidget() is win.pages["evidence"]
     assert win.ctx.active_symbol is not None
     ev = win.pages["evidence"]
-    assert ev.symbol_combo.currentData().broker_symbol == win.ctx.active_symbol.broker_symbol
+    assert ev.symbol_combo.currentData() == win.ctx.active_symbol.broker_symbol
 
 
 # ----------------------------------------------------------------- markets
@@ -96,9 +96,42 @@ def test_evidence_chart_bound_to_selection_not_first_symbol(make_app):
     win.ctx.set_active_symbol(gold)
     assert "Gold" in ev.chart.watermark()
     nas = demo_data.symbol("USTEC.cash")
-    ev.symbol_combo.setCurrentIndex(ev.symbol_combo.findData(nas))
+    ev.symbol_combo.setCurrentIndex(ev.symbol_combo.findData(nas.broker_symbol))
     assert "Nasdaq" in ev.chart.watermark()
     assert ev.chart._bars, "chart has bars for the selected symbol"
+
+
+def test_evidence_keeps_selected_broker_symbol_across_live_snapshot_refresh(make_app, monkeypatch):
+    """Live bid/ask changes must not reset Evidence to the first combo item."""
+    from dataclasses import replace
+
+    win = make_app()
+    ev = win.pages["evidence"]
+
+    original = demo_data.symbol("XAUUSD.m")
+    assert original is not None
+    fresh = replace(original, bid=original.bid + 1.25, ask=original.ask + 1.25)
+
+    real_universe = demo_data.universe
+    snapshot = []
+    for rec in real_universe():
+        snapshot.append(fresh if rec.broker_symbol == original.broker_symbol else rec)
+
+    monkeypatch.setattr(demo_data, "universe", lambda: list(snapshot))
+    monkeypatch.setattr(
+        demo_data,
+        "symbol",
+        lambda broker_symbol: next(
+            (r for r in snapshot if r.broker_symbol == broker_symbol), None
+        ),
+    )
+
+    win.ctx.set_active_symbol(original)
+
+    assert ev.symbol_combo.currentData() == "XAUUSD.m"
+    current = ev.current_record()
+    assert current is fresh
+    assert "Gold" in ev.chart.watermark()
 
 
 def test_evidence_timeframe_buttons_change_chart(make_app):
