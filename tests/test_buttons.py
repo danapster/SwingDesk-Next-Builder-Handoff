@@ -87,6 +87,32 @@ def test_markets_view_evidence_button(make_app):
     assert win.stack.currentWidget() is win.pages["evidence"]
 
 
+def test_markets_non_first_symbol_opens_matching_evidence(make_app):
+    win = make_app()
+    win.navigate("markets")
+    markets = win.pages["markets"]
+
+    wanted_row = -1
+    wanted_symbol = ""
+    for row in range(markets.table.rowCount()):
+        symbol = markets.table.item(row, 0).text()
+        if symbol != markets.table.item(0, 0).text():
+            wanted_row = row
+            wanted_symbol = symbol
+            break
+
+    assert wanted_row >= 0, "need at least two discovered markets"
+    markets.table.setCurrentCell(wanted_row, 0)
+    markets.btn_view.click()
+
+    assert win.stack.currentWidget() is win.pages["evidence"]
+    ev = win.pages["evidence"]
+    assert ev.symbol_combo.currentData() == wanted_symbol
+    assert win.ctx.active_symbol is not None
+    assert win.ctx.active_symbol.broker_symbol == wanted_symbol
+    assert wanted_symbol in ev.freshness.text()
+
+
 # ---------------------------------------------------------------- evidence
 def test_evidence_chart_bound_to_selection_not_first_symbol(make_app):
     """§20: the chart must follow the selected market, never a default."""
