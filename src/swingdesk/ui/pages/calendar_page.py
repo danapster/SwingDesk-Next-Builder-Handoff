@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView,
-                               QLabel, QPushButton, QTableWidget,
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QHeaderView,
+                               QLabel, QLayout, QPushButton, QScrollArea, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ...app_globals import active_theme
@@ -24,9 +24,22 @@ class CalendarPage(QWidget):
     def __init__(self, ctx) -> None:
         super().__init__()
         w, self.root = page_wrapper()
+        self.root.setSizeConstraint(QLayout.SetMinimumSize)
+
+        # The page can grow substantially once the macro panel is populated.
+        # Keep the content at its natural height and scroll the page rather
+        # than letting Qt compress the calendar table down to a single row.
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setWidget(w)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(w)
+        outer.setSpacing(0)
+        outer.addWidget(self.scroll_area)
         self.ctx = ctx
         self._calendar_digest = ""
 
@@ -49,8 +62,16 @@ class CalendarPage(QWidget):
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["UTC", "Event", "Impact", "Source", ""])
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+
+        # Always leave room for the header plus at least five calendar rows.
+        # Additional events remain inside this table and are reached with its
+        # own vertical scrollbar.
+        self.table.setMinimumHeight(190)
         self.root.addWidget(self.table)
 
         clocks = QHBoxLayout()
