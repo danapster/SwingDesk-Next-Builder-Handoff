@@ -350,6 +350,20 @@ def test_performance_empty_state_then_real_metrics(make_app):
 
 
 # ---------------------------------------------------------------- calendar
+def test_calendar_keeps_five_visible_rows_and_scrolls(make_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QAbstractItemView
+
+    win = make_app()
+    page = win.pages["calendar"]
+    assert page.table.minimumHeight() >= 190
+    assert page.table.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded
+    assert page.table.verticalScrollMode() == QAbstractItemView.ScrollPerPixel
+    assert page.scroll_area.widgetResizable() is True
+    assert page.scroll_area.verticalScrollBarPolicy() == Qt.ScrollBarAsNeeded
+    assert page.scroll_area.horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
+
+
 def test_calendar_event_alert_button_creates_rule(make_app):
     from PySide6.QtWidgets import QPushButton
     win = make_app()
