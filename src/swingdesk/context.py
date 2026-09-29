@@ -45,6 +45,7 @@ class AppContext:
         demo_data.connect_live(self.terminal_path)
         self.positions: list[Position] = demo_data.positions()
         self.last_scan_iso: str = ""
+        self.mt5_provider = demo_data
 
     # ---------------------------------------------------------- navigation
     def navigate(self, page_key: str, **kwargs) -> None:

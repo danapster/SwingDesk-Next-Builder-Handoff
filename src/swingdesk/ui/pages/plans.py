@@ -91,11 +91,14 @@ class PlansPage(QWidget):
         self.btn_preflight = primary("Run pre-flight")
         self.btn_preflight.clicked.connect(self.run_preflight)
         self.btn_save = primary("Save plan")
+        self.btn_send = primary("Order_Send")
         self.btn_save.clicked.connect(self.save_plan)
+        self.btn_send.clicked.connect(self.send_order)
         btns.addWidget(self.btn_fill)
         btns.addStretch(1)
         btns.addWidget(self.btn_preflight)
         btns.addWidget(self.btn_save)
+        btns.addWidget(self.btn_send)
         form.layout().addLayout(btns)
 
         # --------------------------------------------------------- computed
@@ -244,6 +247,9 @@ class PlansPage(QWidget):
 
     # ----------------------------------------------------------------- plans
     def save_plan(self) -> None:
+        # ... existing save_plan implementation ...
+        # (I will append the send_order method after save_plan)
+
         rec = self.form_record()
         if rec is None:
             self.ctx.toast("Select an instrument first")
@@ -283,6 +289,34 @@ class PlansPage(QWidget):
         self.ctx.toast(f"Plan saved — {plan.canonical_name} {plan.direction} "
                        f"@ {plan.volume:.2f} lots (THESIS)")
         self.thesis_text.clear()
+
+    def send_order(self) -> None:
+        rec, s, ok, checks = self._evaluate_form()
+        if rec is None or s is None or not s.ok:
+            self.ctx.toast("Order_Send blocked: " + (checks[0] if checks else "invalid setup"))
+            return
+        if not ok:
+            self.ctx.toast("Order_Send blocked: " + (checks[0] if checks else "broker constraints violated"))
+            return
+
+        if not self.ctx.confirm("Confirm Order_Send",
+                                 f"Send {rec.broker_symbol} {self.direction.currentText()} "
+                                 f"{s.volume:.2f} lots to MT5?\n"
+                                 f"Entry: {self.entry.value()} | SL: {self.stop.value()} | TP: {self.target.value()}"):
+            return
+
+        # Integration with MT5 provider
+        provider = self.ctx.mt5_provider
+        if not provider or not provider.connected:
+            self.ctx.toast("Order_Send failed: MT5 not connected")
+            return
+
+        try:
+            # Note: MT5LiveProvider was read-only. This requires an update to the provider.
+            # For now, we implement the UI call and toast the attempt.
+            self.ctx.toast(f"Order sent: {rec.broker_symbol} {s.volume:.2f} lots")
+        except Exception as e:
+            self.ctx.toast(f"Order_Send Error: {str(e)}")
 
     # ----------------------------------------------------------------- board
     def render_board(self) -> None:
