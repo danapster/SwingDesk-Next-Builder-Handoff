@@ -305,16 +305,24 @@ class PlansPage(QWidget):
                                  f"Entry: {self.entry.value()} | SL: {self.stop.value()} | TP: {self.target.value()}"):
             return
 
-        # Integration with MT5 provider
-        provider = self.ctx.mt5_provider
-        if not provider or not provider.connected:
+        # Check connectivity via the provided helper instead of .connected attribute
+        from ...core import demo_data
+        if not demo_data.is_live():
             self.ctx.toast("Order_Send failed: MT5 not connected")
             return
 
         try:
-            # Note: MT5LiveProvider was read-only. This requires an update to the provider.
-            # For now, we implement the UI call and toast the attempt.
-            self.ctx.toast(f"Order sent: {rec.broker_symbol} {s.volume:.2f} lots")
+            # Execute order via the provider
+            from ...core import demo_data
+            success, msg = demo_data.send_order(
+                rec.broker_symbol, self.direction.currentText(), 
+                s.volume, self.entry.value(), self.stop.value(), self.target.value()
+            )
+            
+            if success:
+                self.ctx.toast(f"Order sent successfully! Ticket: {msg}")
+            else:
+                self.ctx.toast(f"Order failed: {msg}")
         except Exception as e:
             self.ctx.toast(f"Order_Send Error: {str(e)}")
 

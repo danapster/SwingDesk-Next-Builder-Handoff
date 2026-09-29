@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: swingdesk
+Version: 0.1.0
+Summary: Swing Desk — live MetaTrader 5 swing-trading decision workstation
+Requires-Python: >=3.10
+Requires-Dist: PySide6>=6.6
+Requires-Dist: tzdata>=2024.1
+Requires-Dist: MetaTrader5>=5.0.6180; platform_system == "Windows"
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-qt; extra == "dev"
+Provides-Extra: mt5
+Requires-Dist: MetaTrader5>=5.0.6180; extra == "mt5"
