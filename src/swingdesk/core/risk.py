@@ -28,6 +28,152 @@ class SizingResult:
     reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class Levels:
+    """A trade's three prices, derived from the price the order will fill at."""
+    entry: float
+    stop: float
+    target: float
+    basis: str
+    notes: tuple[str, ...] = ()
+
+
+# Fallback buffer when the instrument family is unknown, in points.
+SWEEP_BUFFER_POINTS = 10
+# FX is quoted in pips, and 10 pips is the conventional buffer beyond a swept
+# low.  A pip is 10 points at both 5-digit and 3-digit quoting.
+FX_SWEEP_BUFFER_PIPS = 10
+# Metals, indices and crypto have no meaningful pip, and a fixed point count is
+# meaningless across a 2400 gold contract and a 68000 BTC one, so those scale
+# with the instrument's own volatility instead.
+ATR_BUFFER_FRACTION = 0.25
+# Fallback stop width when the lookback contains no confirmed sweep.
+ATR_STOP_MULTIPLE = 1.5
+# Default reward multiple. Matches the 2.0 warning threshold in size_position().
+DEFAULT_REWARD_RATIO = 2.0
+
+
+def round_to_tick(price: float, contract: ContractSpec) -> float:
+    """Snap a price to the broker's tick grid.
+
+    Sending 1.0831000 for a 5-digit symbol is not merely untidy: some brokers
+    reject an off-grid stop outright, and the size maths below would be done
+    against a price the terminal will never accept.
+    """
+    size = contract.tick_size if contract.tick_size > 0 else contract.point
+    if size <= 0:
+        return float(price)
+    return round(round(float(price) / size) * size, int(contract.digits))
+
+
+def sweep_buffer(family: str, contract: ContractSpec, atr_value: float = 0.0) -> float:
+    """How far beyond the swept level the stop should sit, in price terms.
+
+    FX pairs get 10 pips, the buffer a swing stop conventionally carries.
+    Everything else scales with ATR, because a fixed point count means something
+    entirely different on gold than on bitcoin and nothing sensible across both.
+    """
+    point = contract.point if contract.point > 0 else 0.0
+    if point <= 0:
+        return 0.0
+    if (family or "").startswith("FX"):
+        return FX_SWEEP_BUFFER_PIPS * 10 * point
+    if atr_value > 0:
+        return ATR_BUFFER_FRACTION * atr_value
+    return max(SWEEP_BUFFER_POINTS * point, 0.0)
+
+
+def derive_levels(market: float, direction: str, contract: ContractSpec,
+                  sweep_price: float = 0.0, sweep_kind: str = "",
+                  atr_value: float = 0.0, family: str = "",
+                  reward_ratio: float = DEFAULT_REWARD_RATIO) -> Levels:
+    """Build entry/stop/target around the live market price.
+
+    `market` must be the price the order actually fills at — the ask for a buy,
+    the bid for a sell.  Anchoring levels to a historical structure price
+    instead is what previously produced orders the broker refused: the levels
+    were valid where they were drawn and already stale by the time they were
+    sent, so the stop and target landed on the wrong side of the market and
+    the volume, sized off the drawn distance, did not match the real risk.
+
+    The stop goes beyond the last liquidity sweep by `sweep_buffer`.  With no
+    confirmed sweep it falls back to an ATR stop, so a valid level always
+    exists.  Either way it is then pushed out to satisfy the broker's stops
+    level, which is frequently stricter than the advertised value.
+    """
+    notes: list[str] = []
+    is_buy = (direction or "").upper() == "LONG"
+    required = max(contract.stops_level_points * contract.point, 0.0)
+    buffer = sweep_buffer(family, contract, atr_value)
+    min_dist = max(buffer, required)
+    if min_dist <= 0:
+        min_dist = max(SWEEP_BUFFER_POINTS * contract.point, 0.0)
+
+    wants_low = is_buy                      # a long needs room down to the sweep
+    basis = ""
+    raw_stop = 0.0
+
+    if sweep_price > 0 and ((wants_low and sweep_kind == "LOW") or
+                            (not wants_low and sweep_kind == "HIGH")):
+        raw_stop = sweep_price - min_dist if wants_low else sweep_price + min_dist
+        basis = f"liquidity sweep {sweep_price:.5g} {sweep_kind.lower()} + buffer"
+        if required > buffer > 0:
+            notes.append(f"The broker stops level ({contract.stops_level_points} points) "
+                         f"is wider than the {min_dist:.5g} buffer, so the stop was "
+                         "widened to clear it.")
+    else:
+        width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
+        if atr_value <= 0:
+            notes.append("No confirmed liquidity sweep and no ATR available; "
+                         "stop placed at a provisional 0.4% width.")
+        else:
+            notes.append("No confirmed liquidity sweep in the lookback; "
+                         f"stop placed at {ATR_STOP_MULTIPLE:g}x ATR.")
+        raw_stop = market - width if is_buy else market + width
+        basis = "ATR stop" if atr_value > 0 else "provisional 0.4% stop"
+
+    # A sweep that sits on the wrong side of the market is stale, not structure.
+    if is_buy and raw_stop >= market:
+        width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
+        raw_stop = market - width
+        basis = "ATR stop (sweep already behind the market)"
+        notes.append("The swept low is at or above the market; it has already been "
+                     "traded through, so the stop fell back to ATR.")
+    elif not is_buy and raw_stop <= market:
+        width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
+        raw_stop = market + width
+        basis = "ATR stop (sweep already behind the market)"
+        notes.append("The swept high is at or below the market; it has already been "
+                     "traded through, so the stop fell back to ATR.")
+
+    # The broker's stops level is a hard floor on the distance, whatever the
+    # structure asked for.
+    if is_buy and market - raw_stop < required:
+        raw_stop = market - required
+        notes.append(f"Stop pushed out to the broker stops level "
+                     f"({contract.stops_level_points} points).")
+    elif not is_buy and raw_stop - market < required:
+        raw_stop = market + required
+        notes.append(f"Stop pushed out to the broker stops level "
+                     f"({contract.stops_level_points} points).")
+
+    risk_distance = abs(market - raw_stop)
+    reward_distance = risk_distance * max(reward_ratio, 0.1)
+
+    entry = round_to_tick(market, contract)
+    stop = round_to_tick(raw_stop, contract)
+    target = round_to_tick(market + reward_distance if is_buy
+                           else market - reward_distance, contract)
+
+    # Rounding to the tick grid can shave a point off the stops level; restore it.
+    if is_buy and entry - stop < required:
+        stop = round_to_tick(entry - required, contract)
+    elif not is_buy and stop - entry < required:
+        stop = round_to_tick(entry + required, contract)
+
+    return Levels(entry, stop, target, basis, tuple(notes))
+
+
 def floor_to_step(value: float, step: float) -> float:
     if step <= 0:
         return value

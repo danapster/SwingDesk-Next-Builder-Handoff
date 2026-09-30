@@ -131,7 +131,19 @@ def test_saved_plan_keeps_the_selected_symbol(make_app):
 
     # Use engine levels so entry/stop/target are valid and order_check passes.
     page.fill_from_engines()
-    page.risk_pct.setValue(0.1)
+
+    # The cap has to at least afford the broker's minimum volume across the stop
+    # width the engines actually produced, and that depends on live account
+    # equity, which this test does not control. Derive a workable percentage so
+    # the assertion stays about symbol persistence instead of risk appetite —
+    # size_position rightly refuses to over-risk to satisfy a cap the instrument
+    # cannot meet.
+    live = page.form_record()
+    distance = abs(page.entry.value() - page.stop.value())
+    per_lot = distance * live.contract.tick_value / live.contract.tick_size
+    needed = per_lot * live.contract.volume_min / demo_data.account_equity() * 100
+    page.risk_pct.setValue(round(min(100.0, max(1.0, needed * 1.5)), 2))
+
     before = len(win.ctx.store.plans())
     page.save_plan()
     plans = win.ctx.store.plans()

@@ -124,15 +124,22 @@ class MT5LiveProvider:
             return "CFD", "Metals"
         if "BTC" in up or "ETH" in up or "CRYPTO" in up:
             return "CFD", "Crypto"
-        if any(x in up for x in ("US30", "USTEC", "NAS", "SPX", "GER40", "DE40",
-                                  "UK100", "JP225", "DJ", "DAX")):
-            return "CFD", "Index CFDs"
-        if base and profit and len(base) == 3 and len(profit) == 3:
+        # A six-letter stem carrying 3+3 currency metadata is a spot FX pair, and
+        # that has to be settled before the index heuristics below.  "DJ" is the
+        # Dow's token and "USDJPY" contains it, so every yen pair was being filed
+        # as an index CFD — which then gave it an index-sized stop buffer.
+        stem = up.split(".", 1)[0]
+        letters = "".join(ch for ch in stem if ch.isalpha())
+        if (len(letters) == 6 and stem.isalpha() and base and profit
+                and len(base) == 3 and len(profit) == 3):
             if base in _MAJOR and profit in _MAJOR:
                 if "USD" in (base, profit):
                     return "FX", "FX majors"
                 return "FX", "FX crosses"
             return "FX", "FX exotics"
+        if any(x in up for x in ("US30", "USTEC", "NAS", "SPX", "GER40", "DE40",
+                                  "UK100", "JP225", "DJ", "DAX")):
+            return "CFD", "Index CFDs"
         return "CFD", "Broker CFDs"
 
     @staticmethod
@@ -493,6 +500,28 @@ class MT5LiveProvider:
             return OrderResult(False, -1, "Stop loss must sit above the market for a SHORT")
         if not is_buy and tp and tp >= price:
             return OrderResult(False, -1, "Take profit must sit below the market for a SHORT")
+
+        # Side alone is not enough. The market moves between planning and
+        # sending, and a stop that is still on the correct side can end up
+        # closer to the fill than the broker's stops level allows, which comes
+        # back as retcode 10016 rather than anything the planner could have
+        # warned about.
+        stops_level = float(getattr(info, "trade_stops_level", 0) or 0) * float(
+            getattr(info, "point", 0.0) or 0.0)
+        if sl and abs(price - sl) < stops_level:
+            self.last_error = (f"Order blocked — stop loss is "
+                               f"{abs(price - sl):.5g} from the market, inside the broker "
+                               f"stops level ({abs(stops_level):.5g}). Re-derive levels "
+                               f"from the current price.")
+            return OrderResult(False, -1, self.last_error, symbol, direction, vol,
+                               price, sl, tp, planned_entry=planned_entry)
+        if tp and abs(price - tp) < stops_level:
+            self.last_error = (f"Order blocked — take profit is "
+                               f"{abs(price - tp):.5g} from the market, inside the broker "
+                               f"stops level ({abs(stops_level):.5g}). Re-derive levels "
+                               f"from the current price.")
+            return OrderResult(False, -1, self.last_error, symbol, direction, vol,
+                               price, sl, tp, planned_entry=planned_entry)
 
         request = {
             "action": self.mt5.TRADE_ACTION_DEAL,

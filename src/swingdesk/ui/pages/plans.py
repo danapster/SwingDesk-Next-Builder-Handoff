@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout,
                                QVBoxLayout, QWidget)
 
 from ...app_globals import active_theme
-from ...core import demo_data, risk
+from ...core import demo_data, engines, risk
 from ...core.models import LIFECYCLE_TRANSITIONS, LifecycleState, Plan
 from ...core.store import new_id, now_iso
 from ..theme import mono
@@ -157,38 +157,45 @@ class PlansPage(QWidget):
         self.render_computed()
 
     def fill_from_engines(self) -> None:
+        """Derive levels from the price the order will actually fill at.
+
+        The levels used to be drawn around a D1 zone midpoint, which is a
+        historical price: by the time the order was sent the market had often
+        moved past it, leaving the target on the wrong side of the market and
+        sizing the position off a distance it would never fill across.
+        """
         rec = self.form_record()
         if rec is None:
             self.ctx.toast("Select an instrument first")
             return
-        results = demo_data.engine_results(rec.broker_symbol, "D1")
-        zones = [lv for r in results for lv in r.evidence if lv.kind == "zone"]
-        anchor = rec.bid
-        if zones:
-            z = zones[0]
-            mid = z.price
-            anchor = mid
-            span = (z.upper - z.price) if z.upper else abs(z.price * 0.004)
-            entry = mid + span * 0.15
-            stop = mid - span * 1.1
-            target = mid + span * 4.0
-        else:
-            price = rec.bid
-            entry, stop, target = price, price * 0.996, price * 1.014
+        results = demo_data.engine_results(rec.broker_symbol, "H1")
         direction = "SHORT" if any(r.direction.value == "SHORT" and r.strength > 60
                                    for r in results) else "LONG"
-        if direction == "SHORT":
-            # `mid` did not exist in the no-zone fallback, causing a crash for
-            # short engine votes.  Reflect around the active anchor instead.
-            entry, stop, target = (2 * anchor - entry,
-                                   2 * anchor - stop,
-                                   2 * anchor - target)
+
+        # A market buy fills at the ask and a sell at the bid; anchoring to the
+        # wrong side puts the stop inside the spread on every single order.
+        market = rec.ask if direction == "LONG" else rec.bid
+        if market <= 0:
+            market = rec.bid or rec.ask
+        if market <= 0:
+            self.ctx.toast("No live price for this instrument — MT5 is not quoting it")
+            return
+
+        bars = demo_data.bars(rec.broker_symbol, "H1", 200)
+        sweep_price, sweep_kind = engines.last_sweep(bars)
+        atr_value = engines.atr(bars) if bars else 0.0
+        levels = risk.derive_levels(market, direction, rec.contract,
+                                    sweep_price, sweep_kind, atr_value,
+                                    family=rec.family)
+
         self.direction.setCurrentText(direction)
-        self.entry.setValue(round(entry, 6))
-        self.stop.setValue(round(stop, 6))
-        self.target.setValue(round(target, 6))
+        self.entry.setValue(levels.entry)
+        self.stop.setValue(levels.stop)
+        self.target.setValue(levels.target)
         self.render_computed()
-        self.ctx.toast("Levels filled from Engine B zone + engine direction votes")
+        self.ctx.toast(f"Levels from live {rec.broker_symbol} {market:.5g} — {levels.basis}")
+        for note in levels.notes:
+            self.ctx.toast(note)
 
     # ------------------------------------------------------------- computed
     def _levels_match_direction(self, entry: float, stop: float, target: float) -> bool:

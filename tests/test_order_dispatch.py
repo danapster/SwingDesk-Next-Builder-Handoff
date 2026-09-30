@@ -182,10 +182,25 @@ def test_order_rejected_when_stops_fail_broker_order_check():
     """The broker's real stops level is stricter than symbol_info advertises."""
     mt5 = FakeMT5(check_retcode=10016)
     p = provider_with(mt5)
-    res = p.order_send("EURUSD", "LONG", 0.01, stop=1.13348, target=1.13372)
+    # Comfortably outside the advertised 14-point level, so the order clears the
+    # local guard and is refused by the broker's own check — the fault this test
+    # exists to cover is a broker stricter than symbol_info, not a local one.
+    res = p.order_send("EURUSD", "LONG", 0.01, stop=1.13300, target=1.13400)
     assert not res.ok
     assert "invalid stops" in res.message
     assert mt5.sent == []          # nothing was actually sent
+
+
+def test_order_blocked_locally_when_stop_is_inside_the_stops_level():
+    """A stop that drifted inside the stops level is caught before sending."""
+    mt5 = FakeMT5()
+    p = provider_with(mt5)
+    # 2 points from the 1.1335 market, against an advertised 14.
+    res = p.order_send("EURUSD", "LONG", 0.01, stop=1.13348, target=1.13400)
+    assert not res.ok
+    assert "stops level" in res.message
+    assert mt5.sent == []
+    assert mt5.checks == []        # never even asked the broker
 
 
 def test_accepted_but_unlisted_is_not_reported_as_verified():

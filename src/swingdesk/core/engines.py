@@ -49,6 +49,42 @@ def impulse_leg(bars: list[Bar]) -> tuple[Bar, Bar] | None:
     return a[1], b[1]
 
 
+def last_sweep(bars: list[Bar], left: int = 3, right: int = 3) -> tuple[float, str]:
+    """Most recent confirmed liquidity sweep as (extreme, "LOW"|"HIGH").
+
+    A sweep is a bar that pierces a level already confirmed as a pivot and then
+    closes back inside it, taking out resting liquidity without accepting the
+    price.  "LOW" is the sell-side sweep that matters for a long stop; "HIGH"
+    is its buy-side mirror for a short.
+
+    Engine C reports the *resting* 40-bar range high/low, which is a different
+    thing: it is where liquidity still sits, not where it was last taken.  A
+    stop wants the latter.
+
+    Returns (0.0, "") when the lookback holds no confirmed sweep.
+    """
+    ps = pivots(bars, left, right)
+    if not ps:
+        return 0.0, ""
+    # Newest pivot first, and scan the bars that follow it backwards, so the
+    # result is the most recent sweep rather than the first one after some older
+    # level. The level is the pivot's own extreme: that is the resting
+    # liquidity. Comparing against the lowest low of the whole prior history
+    # instead would make almost any bar in a downtrend look like a sweep.
+    for idx, bar, kind in reversed(ps):
+        if kind == "L":
+            level = float(bar.low)
+            for b in reversed(bars[idx + 1 :]):
+                if b.low < level and b.close > level:
+                    return float(b.low), "LOW"
+        else:
+            level = float(bar.high)
+            for b in reversed(bars[idx + 1 :]):
+                if b.high > level and b.close < level:
+                    return float(b.high), "HIGH"
+    return 0.0, ""
+
+
 # ---------------------------------------------------------------- engines
 
 def engine_a_structure(bars: list[Bar]) -> EngineResult:
