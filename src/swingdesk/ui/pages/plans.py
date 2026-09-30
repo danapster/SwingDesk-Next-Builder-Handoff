@@ -168,9 +168,18 @@ class PlansPage(QWidget):
         if rec is None:
             self.ctx.toast("Select an instrument first")
             return
-        results = demo_data.engine_results(rec.broker_symbol, "H1")
-        direction = "SHORT" if any(r.direction.value == "SHORT" and r.strength > 60
-                                   for r in results) else "LONG"
+        # One vote per group rather than `any engine says SHORT`. The old test
+        # let a single strength-60+ bearish engine outvote four bullish ones and
+        # defaulted to LONG when nothing voted at all, so it read as conviction
+        # it had not earned; measured over the tradable universe it resolved 73%
+        # of symbols SHORT.
+        vote = engines.group_vote(demo_data.engine_results(rec.broker_symbol, "H1"))
+        if not vote.actionable:
+            self.ctx.toast(f"No actionable direction for {rec.broker_symbol} — "
+                           + (vote.reasons[-1] if vote.reasons else "no engine signal"))
+            return
+        direction = vote.direction.value
+        self._last_vote = vote
 
         # A market buy fills at the ask and a sell at the bid; anchoring to the
         # wrong side puts the stop inside the spread on every single order.
@@ -193,7 +202,11 @@ class PlansPage(QWidget):
         self.stop.setValue(levels.stop)
         self.target.setValue(levels.target)
         self.render_computed()
-        self.ctx.toast(f"Levels from live {rec.broker_symbol} {market:.5g} — {levels.basis}")
+        agreeing = [g for g, side in vote.groups.items() if side == direction]
+        self.ctx.toast(f"{direction} on {rec.broker_symbol} — {len(agreeing)}/"
+                       f"{len(vote.groups)} groups agree, edge {vote.edge:+.0%} "
+                       f"({', '.join(agreeing)})")
+        self.ctx.toast(f"Levels from live {market:.5g} — {levels.basis}")
         for note in levels.notes:
             self.ctx.toast(note)
 

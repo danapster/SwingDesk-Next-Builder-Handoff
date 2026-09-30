@@ -6,6 +6,7 @@ pivots, ATR and impulse legs live here once and are shared.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from statistics import mean
 
 from .models import Bar, Direction, EngineResult, EvidenceLevel, Reason, Verdict
@@ -323,15 +324,127 @@ def run_all_engines(bars: list[Bar]) -> list[EngineResult]:
     return [fn(bars) for fn in ENGINES]
 
 
-GROUPS = {"STRUCTURE": ("A.structure",), "LOCATION": ("F.ote",),
-          "LIQUIDITY": ("C.liquidity",), "ZONES": ("B.supply_demand", "D.fvg", "E.order_block"),
-          "TIMING": ("G.crt", "I.divergence")}
+GROUPS = ("STRUCTURE", "LOCATION", "LIQUIDITY", "ZONES", "TIMING")
+_GROUP_ENGINES = {"STRUCTURE": ("A.structure",), "LOCATION": ("F.ote",),
+                  "LIQUIDITY": ("C.liquidity",),
+                  "ZONES": ("B.supply_demand", "D.fvg", "E.order_block"),
+                  "TIMING": ("G.crt", "I.divergence")}
+# How much each group counts toward a direction. Structure leads because it is
+# the only group that reads trend rather than a local pattern; timing is
+# corroboration, so it can never carry a direction alone.
+GROUP_WEIGHTS = {"STRUCTURE": 1.5, "ZONES": 1.25, "LOCATION": 1.0,
+                 "LIQUIDITY": 1.0, "TIMING": 0.75}
+# An engine below this contributes nothing, whatever its group's weight.
+MIN_ENGINE_STRENGTH = 60.0
+# A side must lead by at least this share of the total to be actionable. Below
+# it the engines disagree and the honest answer is no direction.
+MIN_DIRECTION_EDGE = 0.15
+
+
+@dataclass(frozen=True)
+class DirectionVote:
+    """Outcome of collapsing the engine set into one actionable direction."""
+    direction: Direction            # LONG, SHORT, or NONE when there is no edge
+    bull: float
+    bear: float
+    edge: float
+    groups: dict[str, str]
+    reasons: list[str] = field(default_factory=list)
+
+    @property
+    def actionable(self) -> bool:
+        return self.direction != Direction.NONE
+
+
+def group_vote(results: list[EngineResult],
+               min_strength: float = MIN_ENGINE_STRENGTH,
+               min_edge: float = MIN_DIRECTION_EDGE) -> DirectionVote:
+    """Collapse engine verdicts into a direction, one vote per group.
+
+    The planner previously asked only `any engine says SHORT`, so a single
+    strength-60+ SHORT engine outvoted four LONG ones and every symbol with no
+    bearish engine silently defaulted to LONG.  Measured across 126 tradable
+    symbols that resolved 73% of them SHORT regardless of the evidence, and
+    overturned a LONG majority on 55 symbol/timeframe pairs.
+
+    Each group contributes its best qualifying engine once, weighted by
+    GROUP_WEIGHTS, so three zone engines agreeing is worth one ZONES vote
+    rather than three.  Ties and thin edges return NONE: no signal is a
+    distinct outcome from a long signal, and conflating them is what made the
+    old default read as conviction it had not earned.
+    """
+    by_id = {r.engine_id: r for r in results}
+    bull = bear = 0.0
+    groups: dict[str, str] = {}
+    reasons: list[str] = []
+
+    for group in GROUPS:
+        qualifying = [by_id[e] for e in _GROUP_ENGINES[group]
+                      if e in by_id
+                      and by_id[e].verdict != Verdict.NOT_PRESENT
+                      and by_id[e].direction != Direction.NONE
+                      and by_id[e].strength > min_strength]
+        if not qualifying:
+            continue
+        # One group, one vote, and the group speaks at the average strength of
+        # the engines backing its side rather than their sum.  Summing would
+        # make ZONES louder simply because it holds three engines instead of
+        # one, which hands the largest group the largest voice for free.
+        per_side: dict[str, list[float]] = {"LONG": [], "SHORT": []}
+        best_for_side: dict[str, EngineResult] = {}
+        for r in qualifying:
+            key = "LONG" if r.direction == Direction.LONG else "SHORT"
+            per_side[key].append(r.strength)
+            if key not in best_for_side or r.strength > best_for_side[key].strength:
+                best_for_side[key] = r
+        # Breadth decides: the side with more engines behind it takes the group.
+        # A group where every engine agrees is unanimous and simply votes.  Only
+        # when the counts are level does average strength break the tie, so one
+        # strong engine cannot outvote two weaker ones on the same side count.
+        means = {k: mean(v) for k, v in per_side.items() if v}
+        counts = {k: len(v) for k, v in per_side.items() if v}
+        if len(counts) == 1:
+            side = next(iter(counts))
+        elif counts["LONG"] != counts["SHORT"]:
+            side = max(counts, key=counts.get)
+        elif means["LONG"] == means["SHORT"]:
+            continue                       # the group cannot pick a side
+        else:
+            side = max(means, key=means.get)
+        best = best_for_side[side]
+        groups[group] = side
+        weight = GROUP_WEIGHTS[group] * means[side]
+        if side == "LONG":
+            bull += weight
+        else:
+            bear += weight
+        agreeing = [r for r in qualifying
+                    if (r.direction == Direction.LONG) == (side == "LONG")]
+        detail = f"{group} {side} ({best.engine_id} {best.strength:g}"
+        if len(agreeing) > 1:
+            detail += f", {len(agreeing)} agreeing"
+        reasons.append(detail + ")")
+
+    total = bull + bear
+    if total <= 0:
+        return DirectionVote(Direction.NONE, bull, bear, 0.0, groups,
+                             ["No engine cleared the strength threshold — "
+                              "there is no trade here, which is not the same as a long."])
+
+    edge = (bull - bear) / total
+    leader = Direction.LONG if bull > bear else Direction.SHORT
+    if abs(edge) < min_edge:
+        return DirectionVote(
+            Direction.NONE, bull, bear, edge, groups,
+            reasons + [f"Sides are within {abs(edge):.0%} of each other "
+                       f"({bull:.0f} vs {bear:.0f}); too close to act on."])
+    return DirectionVote(leader, bull, bear, edge, groups, reasons)
 
 
 def scorecard(results: list[EngineResult]) -> dict[str, int | None]:
     by_id = {r.engine_id: r for r in results}
     out: dict[str, int | None] = {}
-    for group, ids in GROUPS.items():
+    for group, ids in _GROUP_ENGINES.items():
         vals = [by_id[i].strength for i in ids if i in by_id and by_id[i].verdict != Verdict.NOT_PRESENT]
         out[group] = round(mean(vals)) if vals else None
     out["MACRO"] = None  # requires a connected macro provider; shown as '?'

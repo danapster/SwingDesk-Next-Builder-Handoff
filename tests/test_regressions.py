@@ -216,12 +216,29 @@ def test_repeated_planner_render_does_not_accumulate_layout_items(make_app, qapp
 def test_engine_fill_short_without_zone_does_not_crash(make_app, monkeypatch):
     win = make_app()
     page = win.pages["plans"]
-    fake = EngineResult(engine_id="X", verdict=Verdict.ACTIVE, strength=80,
-                        direction=Direction.SHORT, evidence=[])
-    monkeypatch.setattr(demo_data, "engine_results", lambda *_args, **_kwargs: [fake])
+    # One real engine_id per group, each voting SHORT. The engine_id matters
+    # because the vote is grouped by evidence category — an id outside every
+    # group is ignored, and the planner then correctly refuses to pick a side.
+    fakes = [EngineResult(engine_id=e, verdict=Verdict.ACTIVE, strength=s,
+                          direction=Direction.SHORT, evidence=[])
+             for e, s in (("A.structure", 78), ("F.ote", 76),
+                          ("B.supply_demand", 82), ("G.crt", 69))]
+    monkeypatch.setattr(demo_data, "engine_results", lambda *_a, **_k: fakes)
     page.fill_from_engines()
     assert page.direction.currentText() == "SHORT"
     assert page.target.value() < page.entry.value() < page.stop.value()
+
+
+def test_engine_fill_refuses_when_no_group_has_an_edge(make_app, monkeypatch):
+    """A single engine outside every group must not silently become a LONG."""
+    win = make_app()
+    page = win.pages["plans"]
+    fake = EngineResult(engine_id="X", verdict=Verdict.ACTIVE, strength=80,
+                        direction=Direction.SHORT, evidence=[])
+    monkeypatch.setattr(demo_data, "engine_results", lambda *_a, **_k: [fake])
+    before = (page.entry.value(), page.stop.value(), page.target.value())
+    page.fill_from_engines()
+    assert (page.entry.value(), page.stop.value(), page.target.value()) == before
 
 
 # 23
