@@ -140,12 +140,12 @@ def test_a_sweep_already_behind_the_market_is_treated_as_stale():
 
 
 # ------------------------------------------------------------ reward multiple
-def test_default_target_is_two_and_a_half_r():
-    assert risk.DEFAULT_REWARD_RATIO == 2.5
+def test_default_target_is_two_r():
+    assert risk.DEFAULT_REWARD_RATIO == 2.0
     lv = risk.derive_levels(1.0825, "LONG", EURUSD, 1.0800, "LOW", 0.0012,
                             family="FX majors")
     assert (lv.target - lv.entry) / (lv.entry - lv.stop) == pytest.approx(
-        2.5, abs=1e-3)
+        2.0, abs=0.01)
 
 
 def test_reward_multiple_is_configurable():
@@ -164,11 +164,11 @@ def test_short_reward_multiple_mirrors_the_long_case():
     # target to the tick grid can shift the realised multiple by a few
     # ten-thousandths of a yen.
     assert (lv.entry - lv.target) / (lv.stop - lv.entry) == pytest.approx(
-        2.5, abs=0.01)
+        2.0, abs=0.01)
 
 
-def test_derived_target_clears_the_planner_warning_threshold():
-    """A 2.5R target must not trip the sub-2R warning on a freshly filled form."""
+def test_derived_target_sits_on_the_warning_threshold():
+    """A 2R target lands on the line, so it must not be flagged as sub-2R."""
     lv = risk.derive_levels(1.0825, "LONG", EURUSD, 1.0800, "LOW", 0.0012,
                             family="FX majors")
     sizing = risk.size_position(lv.entry, lv.stop, lv.target, 1.0, 10_000.0,

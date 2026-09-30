@@ -49,13 +49,14 @@ FX_SWEEP_BUFFER_PIPS = 10
 ATR_BUFFER_FRACTION = 0.25
 # Fallback stop width when the lookback contains no confirmed sweep.
 ATR_STOP_MULTIPLE = 1.5
-# Default reward multiple. 2.5R asks for a materially better payoff than the
-# 2.0R the planner warns below, so the derived target and the warning threshold
-# are deliberately not the same number.
-DEFAULT_REWARD_RATIO = 2.5
+# Default reward multiple. Matches the warning threshold below, so a freshly
+# filled form lands exactly on the line rather than tripping its own warning.
+DEFAULT_REWARD_RATIO = 2.0
 # Below this the trade is flagged: a sub-2R target needs a win rate above 33%
 # before the expectancy is worth the drawdown it implies.
 RR_WARNING_THRESHOLD = 2.0
+# Slack for the tick-grid rounding applied to the target after the multiple.
+RR_TOLERANCE = 0.005
 
 
 def round_to_tick(price: float, contract: ContractSpec) -> float:
@@ -246,7 +247,10 @@ def size_position(entry: float, stop: float, target: float, risk_percent: float,
             reasons.append(f"Requested volume {raw:.2f} lots is below broker minimum "
                            f"{contract.volume_min:.2f}; minimum volume applied within the "
                            "5% rounding tolerance.")
-    if rr < RR_WARNING_THRESHOLD:
+    # Compare with a tolerance: the target is snapped to the broker's tick grid
+    # after the multiple is applied, so a form filled at exactly the threshold
+    # lands a fraction under it and would otherwise warn about itself.
+    if rr < RR_WARNING_THRESHOLD - RR_TOLERANCE:
         reasons.append(f"Reward-to-risk {rr:.2f} is below the "
                        f"{RR_WARNING_THRESHOLD:.1f} warning threshold.")
     if actual_risk > risk_amount * MAX_RISK_OVERAGE_FACTOR:
