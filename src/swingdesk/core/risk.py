@@ -49,8 +49,13 @@ FX_SWEEP_BUFFER_PIPS = 10
 ATR_BUFFER_FRACTION = 0.25
 # Fallback stop width when the lookback contains no confirmed sweep.
 ATR_STOP_MULTIPLE = 1.5
-# Default reward multiple. Matches the 2.0 warning threshold in size_position().
-DEFAULT_REWARD_RATIO = 2.0
+# Default reward multiple. 2.5R asks for a materially better payoff than the
+# 2.0R the planner warns below, so the derived target and the warning threshold
+# are deliberately not the same number.
+DEFAULT_REWARD_RATIO = 2.5
+# Below this the trade is flagged: a sub-2R target needs a win rate above 33%
+# before the expectancy is worth the drawdown it implies.
+RR_WARNING_THRESHOLD = 2.0
 
 
 def round_to_tick(price: float, contract: ContractSpec) -> float:
@@ -116,7 +121,8 @@ def derive_levels(market: float, direction: str, contract: ContractSpec,
     if sweep_price > 0 and ((wants_low and sweep_kind == "LOW") or
                             (not wants_low and sweep_kind == "HIGH")):
         raw_stop = sweep_price - min_dist if wants_low else sweep_price + min_dist
-        basis = f"liquidity sweep {sweep_price:.5g} {sweep_kind.lower()} + buffer"
+        basis = (f"liquidity sweep {sweep_price:.5g} {sweep_kind.lower()} + buffer, "
+                 f"target {max(reward_ratio, 0.1):g}R")
         if required > buffer > 0:
             notes.append(f"The broker stops level ({contract.stops_level_points} points) "
                          f"is wider than the {min_dist:.5g} buffer, so the stop was "
@@ -130,19 +136,20 @@ def derive_levels(market: float, direction: str, contract: ContractSpec,
             notes.append("No confirmed liquidity sweep in the lookback; "
                          f"stop placed at {ATR_STOP_MULTIPLE:g}x ATR.")
         raw_stop = market - width if is_buy else market + width
-        basis = "ATR stop" if atr_value > 0 else "provisional 0.4% stop"
+        basis = (f"ATR stop, target {max(reward_ratio, 0.1):g}R" if atr_value > 0
+                 else f"provisional 0.4% stop, target {max(reward_ratio, 0.1):g}R")
 
     # A sweep that sits on the wrong side of the market is stale, not structure.
     if is_buy and raw_stop >= market:
         width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
         raw_stop = market - width
-        basis = "ATR stop (sweep already behind the market)"
+        basis = f"ATR stop (sweep already behind the market), target {max(reward_ratio, 0.1):g}R"
         notes.append("The swept low is at or above the market; it has already been "
                      "traded through, so the stop fell back to ATR.")
     elif not is_buy and raw_stop <= market:
         width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
         raw_stop = market + width
-        basis = "ATR stop (sweep already behind the market)"
+        basis = f"ATR stop (sweep already behind the market), target {max(reward_ratio, 0.1):g}R"
         notes.append("The swept high is at or below the market; it has already been "
                      "traded through, so the stop fell back to ATR.")
 
@@ -239,8 +246,9 @@ def size_position(entry: float, stop: float, target: float, risk_percent: float,
             reasons.append(f"Requested volume {raw:.2f} lots is below broker minimum "
                            f"{contract.volume_min:.2f}; minimum volume applied within the "
                            "5% rounding tolerance.")
-    if rr < 2.0:
-        reasons.append(f"Reward-to-risk {rr:.2f} is below the 2.0 warning threshold.")
+    if rr < RR_WARNING_THRESHOLD:
+        reasons.append(f"Reward-to-risk {rr:.2f} is below the "
+                       f"{RR_WARNING_THRESHOLD:.1f} warning threshold.")
     if actual_risk > risk_amount * MAX_RISK_OVERAGE_FACTOR:
         reasons.append("Actual risk noticeably exceeds the requested risk after step rounding.")
     # Safety invariant: a broker minimum may only exceed the nominal risk by

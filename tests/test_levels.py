@@ -139,6 +139,44 @@ def test_a_sweep_already_behind_the_market_is_treated_as_stale():
     assert any("already been traded through" in n for n in lv.notes)
 
 
+# ------------------------------------------------------------ reward multiple
+def test_default_target_is_two_and_a_half_r():
+    assert risk.DEFAULT_REWARD_RATIO == 2.5
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 1.0800, "LOW", 0.0012,
+                            family="FX majors")
+    assert (lv.target - lv.entry) / (lv.entry - lv.stop) == pytest.approx(
+        2.5, abs=1e-3)
+
+
+def test_reward_multiple_is_configurable():
+    for r in (1.0, 1.5, 3.0, 5.0):
+        lv = risk.derive_levels(1.0825, "LONG", EURUSD, 1.0800, "LOW", 0.0012,
+                                family="FX majors", reward_ratio=r)
+        assert (lv.target - lv.entry) / (lv.entry - lv.stop) == pytest.approx(
+            r, abs=1e-3)
+        assert guard_passes("LONG", 1.0825, lv, EURUSD)
+
+
+def test_short_reward_multiple_mirrors_the_long_case():
+    lv = risk.derive_levels(149.203, "SHORT", USDJPY, 149.318, "HIGH", 0.42,
+                            family="FX crosses")
+    # abs=0.01 rather than 1e-3: USDJPY quotes at 3 digits, so rounding the
+    # target to the tick grid can shift the realised multiple by a few
+    # ten-thousandths of a yen.
+    assert (lv.entry - lv.target) / (lv.stop - lv.entry) == pytest.approx(
+        2.5, abs=0.01)
+
+
+def test_derived_target_clears_the_planner_warning_threshold():
+    """A 2.5R target must not trip the sub-2R warning on a freshly filled form."""
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 1.0800, "LOW", 0.0012,
+                            family="FX majors")
+    sizing = risk.size_position(lv.entry, lv.stop, lv.target, 1.0, 10_000.0,
+                                EURUSD)
+    assert sizing.ok
+    assert not [r for r in sizing.reasons if "warning threshold" in r]
+
+
 def test_a_sweep_on_the_wrong_side_is_ignored():
     """A low sweep is meaningless for a short; use the high."""
     lv = risk.derive_levels(149.203, "SHORT", USDJPY, 140.0, "LOW", 0.42)
