@@ -20,6 +20,7 @@ class RadarPage(QWidget):
     def __init__(self, ctx) -> None:
         super().__init__()
         self.ctx = ctx
+        self._focus = None
         w, lay = page_wrapper()
         self.setLayout(QVBoxLayout())
         scroll = QScrollArea()
@@ -37,7 +38,7 @@ class RadarPage(QWidget):
         self.btn_refresh = QPushButton("Refresh scan")
         self.btn_refresh.clicked.connect(self.refresh_scan)
         self.btn_new_thesis = primary("New thesis")
-        self.btn_new_thesis.clicked.connect(lambda: self.ctx.navigate("plans"))
+        self.btn_new_thesis.clicked.connect(self.start_thesis)
         self.scan_label = QLabel("")
         self.scan_label.setObjectName("Tiny")
         actions.addWidget(self.btn_refresh)
@@ -119,6 +120,10 @@ class RadarPage(QWidget):
             btn = QPushButton("Evidence")
             btn.clicked.connect(lambda _=False, r=rec: self.open_evidence(r))
             h.addWidget(btn)
+            plan_btn = QPushButton("Plan this")
+            plan_btn.setObjectName("Primary")
+            plan_btn.clicked.connect(lambda _=False, r=rec: self.open_planner(r))
+            h.addWidget(plan_btn)
             lay.addWidget(pill)
         count = QLabel(f"{len(rows)} opportunities from {len(demo_data.universe())} symbols · "
                        "ranked by structure, location, liquidity, zone and timing evidence — not an opaque score.")
@@ -126,8 +131,30 @@ class RadarPage(QWidget):
         lay.addWidget(count)
 
     def open_evidence(self, rec) -> None:
+        self._focus = rec
         self.ctx.set_active_symbol(rec)
         self.ctx.navigate("evidence")
+
+    def open_planner(self, rec) -> None:
+        """Hand the chosen pair to the planner.
+
+        The selection has to travel with the navigation: navigating alone left
+        the planner on whatever instrument happened to be first in the list.
+        """
+        self._focus = rec
+        self.ctx.set_active_symbol(rec)
+        self.ctx.navigate("plans")
+
+    def start_thesis(self) -> None:
+        """'New thesis' targets the focused pair, else the top opportunity."""
+        rec = self._focus
+        if rec is None:
+            rows = demo_data.opportunity_rows()
+            rec = rows[0]["record"] if rows else None
+        if rec is None:
+            self.ctx.toast("No evaluated opportunity to plan yet — refresh the scan")
+            return
+        self.open_planner(rec)
 
     def _active_thesis_plan(self):
         plans = self.ctx.store.plans()
@@ -149,7 +176,7 @@ class RadarPage(QWidget):
                 "No active thesis",
                 "Pick an opportunity above and build a plan — your idea is valid when the "
                 "evidence says so, and your timing arrives when the Wait Engine says so.",
-                "Open planner", lambda: self.ctx.navigate("plans")))
+                "Open planner", self.start_thesis))
             return
         eb = QLabel(f"ACTIVE THESIS · {plan.canonical_name}")
         eb.setObjectName("Eyebrow")
@@ -171,7 +198,9 @@ class RadarPage(QWidget):
                          f"&nbsp;&nbsp;<b style='font-family:{mono()}'>{value}</b>")
             lay.addWidget(row)
         btn = primary("Open planner")
-        btn.clicked.connect(lambda: self.ctx.navigate("plans"))
+        rec = demo_data.symbol(plan.broker_symbol)
+        btn.clicked.connect(lambda _=False, r=rec: self.open_planner(r) if r is not None
+                            else self.ctx.navigate("plans"))
         lay.addWidget(btn)
 
     def _render_stats(self) -> None:

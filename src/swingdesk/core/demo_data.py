@@ -213,6 +213,7 @@ _LIVE = None
 _LIVE_ATTEMPTED = False
 _TERMINAL_PATH = ""
 _LIVE_ERROR = ""
+_LAST_ORDER = None
 
 
 def _force_demo() -> bool:
@@ -414,3 +415,32 @@ def opportunity_rows() -> list[dict]:
     if _ensure_live() and _LIVE is not None:
         return _LIVE.opportunity_rows()
     return _demo_opportunity_rows() if _force_demo() else []
+
+
+def order_send(symbol: str, direction: str, volume: float,
+               stop: float = 0.0, target: float = 0.0,
+               planned_entry: float = 0.0, magic: int = 20260101,
+               deviation_points: int = 20, comment: str = "SwingDesk",
+               verify: bool = True):
+    """Dispatch one market order through the live provider.
+
+    The demo adapter has no broker, so this always fails closed rather than
+    reporting a fictitious success — a plan must never look dispatched when
+    nothing reached a terminal.
+    """
+    from .models import OrderResult
+    global _LAST_ORDER
+    if not _ensure_live() or _LIVE is None:
+        reason = (_LIVE_ERROR or "MT5 is not connected").strip() or "MT5 is not connected"
+        _LAST_ORDER = OrderResult(False, -1,
+                                  f"Order not sent — {reason}. Connect a terminal in Settings "
+                                  "and sign in to a trading account first.")
+        return _LAST_ORDER
+    _LAST_ORDER = _LIVE.order_send(symbol, direction, volume, stop, target,
+                                   planned_entry, magic, deviation_points, comment, verify)
+    return _LAST_ORDER
+
+
+def last_order_result():
+    """Return the most recent dispatch result, for diagnostics/tests."""
+    return _LAST_ORDER

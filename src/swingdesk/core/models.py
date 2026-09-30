@@ -155,6 +155,34 @@ class Plan:
     closed_at: str | None = None
 
 
+@dataclass(frozen=True)
+class OrderResult:
+    """Outcome of one broker dispatch attempt.
+
+    `verified` is true only when the ticket was observed in the account's
+    open orders/positions after the send.  A send that reports success without
+    verification is a failure, not a success (§10.3).
+    """
+    ok: bool
+    retcode: int
+    message: str
+    symbol: str = ""
+    direction: str = ""
+    volume: float = 0.0
+    price: float = 0.0
+    sl: float = 0.0
+    tp: float = 0.0
+    order_ticket: int = 0
+    deal_ticket: int = 0
+    position_ticket: int = 0
+    verified: bool = False
+    planned_entry: float = 0.0
+
+    @property
+    def ticket(self) -> int:
+        return self.position_ticket or self.order_ticket or self.deal_ticket
+
+
 @dataclass
 class Position:
     ticket: int

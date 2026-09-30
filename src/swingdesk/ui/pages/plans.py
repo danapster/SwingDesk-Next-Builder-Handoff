@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt
@@ -36,6 +37,8 @@ class PlansPage(QWidget):
         outer.addWidget(scroll)
 
         self.ctx = ctx
+        self._rec_cache: dict[str, tuple[float, object]] = {}
+        self._rec_ttl = 1.0
         self.root.addWidget(heading("Planner",
                                     "Plan the trade before you take it. Sizing uses the broker "
                                     "contract; dispatch needs an accepted order_check.",
@@ -51,7 +54,11 @@ class PlansPage(QWidget):
         fl.addWidget(form, 1)
         self.symbol_combo = QComboBox()
         for r in demo_data.universe():
-            self.symbol_combo.addItem(f"{r.canonical_name}  ({r.broker_symbol})", r)
+            # Store a stable broker identifier, not the record itself. The live
+            # provider rebuilds SymbolRecord on every tick, so comparing whole
+            # records (findData on the dataclass) silently failed to match.
+            self.symbol_combo.addItem(f"{r.canonical_name}  ({r.broker_symbol})",
+                                      r.broker_symbol)
         self.symbol_combo.currentIndexChanged.connect(self.on_form_changed)
         self.direction = QComboBox()
         self.direction.addItems(("LONG", "SHORT"))
@@ -117,10 +124,29 @@ class PlansPage(QWidget):
 
     # --------------------------------------------------------------- helpers
     def form_record(self):
-        return self.symbol_combo.currentData()
+        """Resolve the selected broker symbol to a live record.
+
+        Keyed on broker_symbol rather than a stored record so a fresh tick from
+        MT5 (new bid/ask) still resolves to the same instrument. Results are
+        briefly cached because render_computed() runs on every keystroke and
+        spinbox drag, and each live lookup is a terminal round-trip.
+        """
+        symbol = self.symbol_combo.currentData()
+        if not symbol:
+            return None
+        now = time.monotonic()
+        cached = self._rec_cache.get(symbol)
+        if cached and now - cached[0] < self._rec_ttl:
+            return cached[1]
+        rec = demo_data.symbol(symbol)
+        if rec is not None:
+            self._rec_cache[symbol] = (now, rec)
+        return rec
 
     def sync_symbol_selection(self, rec) -> None:
-        i = self.symbol_combo.findData(rec)
+        if rec is None:
+            return
+        i = self.symbol_combo.findData(rec.broker_symbol)
         if i >= 0 and i != self.symbol_combo.currentIndex():
             self.symbol_combo.blockSignals(True)
             self.symbol_combo.setCurrentIndex(i)
@@ -228,8 +254,10 @@ class PlansPage(QWidget):
         self._check_state.setStyleSheet(
             f"color:{active_theme().bull if ok else active_theme().bear};")
         lay.addWidget(self._check_state)
-        note = QLabel("Demo paper mode: dispatch is validation-only. Nothing is ever sent to a "
-                      "broker without an accepted order_check and explicit confirmation (§10.3).")
+        note = QLabel("Order_Send places a real market order on the connected MT5 account. "
+                      "It is blocked unless order_check passes, the broker accepts the stops, "
+                      "and you type SEND to confirm. The fill is verified against the account "
+                      "before it is reported as sent (§10.3).")
         note.setObjectName("Tiny")
         note.setWordWrap(True)
         lay.addWidget(note)
@@ -247,9 +275,6 @@ class PlansPage(QWidget):
 
     # ----------------------------------------------------------------- plans
     def save_plan(self) -> None:
-        # ... existing save_plan implementation ...
-        # (I will append the send_order method after save_plan)
-
         rec = self.form_record()
         if rec is None:
             self.ctx.toast("Select an instrument first")
@@ -299,32 +324,73 @@ class PlansPage(QWidget):
             self.ctx.toast("Order_Send blocked: " + (checks[0] if checks else "broker constraints violated"))
             return
 
-        if not self.ctx.confirm("Confirm Order_Send",
-                                 f"Send {rec.broker_symbol} {self.direction.currentText()} "
-                                 f"{s.volume:.2f} lots to MT5?\n"
-                                 f"Entry: {self.entry.value()} | SL: {self.stop.value()} | TP: {self.target.value()}"):
+        # Never dispatch while the terminal is down: the point of this button is
+        # a real order, and a silent paper-mode success hides that.
+        status = demo_data.connection_status()
+        if not status.get("connected"):
+            self.ctx.toast("Order_Send blocked: MT5 is not connected. "
+                           "Open MT5, sign in to a trading account, then retry.")
             return
 
-        # Check connectivity via the provided helper instead of .connected attribute
-        from ...core import demo_data
-        if not demo_data.is_live():
-            self.ctx.toast("Order_Send failed: MT5 not connected")
+        direction = self.direction.currentText()
+        volume = s.volume
+        entry, stop, target = self.entry.value(), self.stop.value(), self.target.value()
+        ticket = 0
+        if not self.ctx.confirm_typed("Send real order to MT5",
+                                      f"LIVE ORDER — {rec.broker_symbol} {direction} "
+                                      f"{volume:.2f} lots\n"
+                                      f"Entry {entry:.5g} · SL {stop:.5g} · TP {target:.5g}\n"
+                                      f"Account: {status.get('login', '?')} @ {status.get('server', '?')}\n\n"
+                                      f"Type SEND to place this order at the market.",
+                                      "SEND"):
             return
 
+        self.btn_send.setEnabled(False)
+        self.btn_send.setText("Sending…")
         try:
-            # Execute order via the provider
-            from ...core import demo_data
-            success, msg = demo_data.send_order(
-                rec.broker_symbol, self.direction.currentText(), 
-                s.volume, self.entry.value(), self.stop.value(), self.target.value()
-            )
-            
-            if success:
-                self.ctx.toast(f"Order sent successfully! Ticket: {msg}")
-            else:
-                self.ctx.toast(f"Order failed: {msg}")
-        except Exception as e:
-            self.ctx.toast(f"Order_Send Error: {str(e)}")
+            result = demo_data.order_send(
+                rec.broker_symbol, direction, volume,
+                stop=stop, target=target, planned_entry=entry,
+                magic=int(self.ctx.setting("order_magic") or 20260101),
+                deviation_points=int(self.ctx.setting("order_deviation") or 20),
+                comment="SwingDesk")
+        except Exception as exc:
+            self.ctx.toast(f"Order_Send error: {type(exc).__name__}: {exc}")
+            return
+        finally:
+            self.btn_send.setEnabled(True)
+            self.btn_send.setText("Order_Send")
+
+        if not result.ok:
+            self.ctx.toast(f"Order REJECTED — {result.message}")
+            return
+        ticket = result.ticket
+        slip = ""
+        if result.price and entry:
+            slip = f" (fill {result.price:.5g}, plan {entry:.5g})"
+        if not result.verified:
+            self.ctx.toast(f"Order sent but NOT confirmed listed — {result.message}")
+            return
+        self.ctx.toast(f"Order FILLED — {rec.broker_symbol} {direction} {volume:.2f} lots "
+                       f"ticket {ticket}{slip}")
+        self._record_dispatch(rec, direction, volume, stop, target, result)
+
+    def _record_dispatch(self, rec, direction: str, volume: float,
+                         stop: float, target: float, result) -> None:
+        """Persist the dispatch as an OPEN plan so the fill is auditable."""
+        plan = Plan(
+            id=new_id("plan"), broker_symbol=rec.broker_symbol,
+            canonical_name=rec.canonical_name, direction=direction,
+            entry=result.planned_entry or result.price, stop=stop, target=target,
+            risk_percent=self.risk_pct.value(), volume=volume,
+            thesis=self.thesis_text.toPlainText().strip(),
+            state=LifecycleState.OPEN, created_at=now_iso(), updated_at=now_iso(),
+            actual_fill=result.price,
+            behaviour_flags=[f"mt5_ticket:{result.ticket}",
+                             f"mt5_retcode:{result.retcode}"])
+        self.ctx.store.save_plan(plan)
+        self.ctx.events.plans_changed.emit()
+        self.ctx.events.positions_changed.emit()
 
     # ----------------------------------------------------------------- board
     def render_board(self) -> None:
@@ -436,10 +502,10 @@ class PlansPage(QWidget):
                 self.ctx.toast("Dispatch blocked: " +
                                (checks[0] if checks else "order_check rejected"))
                 return
-            if not self.ctx.confirm("Confirm dispatch (paper mode)",
-                                    f"Send {plan.canonical_name} {plan.direction} "
-                                    f"{plan.volume:.2f} lots to broker validation?\n"
-                                    "Paper mode: order_check runs, nothing is sent."):
+            if not self.ctx.confirm("Advance plan to " + new_state.value,
+                                    f"Mark {plan.canonical_name} {plan.direction} "
+                                    f"{plan.volume:.2f} lots as {new_state.value}?\n"
+                                    "Use Order_Send on the planner to place an actual order."):
                 return
         plan.state = new_state
         plan.updated_at = now_iso()

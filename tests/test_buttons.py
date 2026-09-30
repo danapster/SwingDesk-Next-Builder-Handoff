@@ -204,7 +204,7 @@ def test_evidence_create_thesis_goes_to_plans(make_app):
 # ------------------------------------------------------------------- plans
 def _fill_plan_form(page, entry=1.0831, stop=1.0781, target=1.0991):
     for i in range(page.symbol_combo.count()):
-        if page.symbol_combo.itemData(i).broker_symbol == "EURUSD.a":
+        if page.symbol_combo.itemData(i) == "EURUSD.a":
             page.symbol_combo.setCurrentIndex(i)
             break
     page.direction.setCurrentText("LONG")
@@ -307,7 +307,7 @@ def test_positions_close_one_moves_linked_plan_to_closed(make_app):
     _fill_plan_form(page)
     # make it match the demo GBPJPY position so the close links them
     for i in range(page.symbol_combo.count()):
-        if page.symbol_combo.itemData(i).broker_symbol == "GBPJPY.m":
+        if page.symbol_combo.itemData(i) == "GBPJPY.m":
             page.symbol_combo.setCurrentIndex(i)
             break
     page.direction.setCurrentText("LONG")
