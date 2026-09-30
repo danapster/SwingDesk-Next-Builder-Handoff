@@ -50,6 +50,29 @@ def impulse_leg(bars: list[Bar]) -> tuple[Bar, Bar] | None:
     return a[1], b[1]
 
 
+def structure_levels(bars: list[Bar], market: float, left: int = 3,
+                     right: int = 3, max_levels: int = 4) -> dict:
+    """Support and resistance around a price, nearest first.
+
+    A level is a confirmed swing pivot, so it is where the market has actually
+    turned rather than an arbitrary round number.  Levels are returned in
+    trading order — supports descending toward the market, resistances
+    ascending away from it — because the caller walks them outward until the
+    bracket it can express.
+
+    Levels at or beyond `market` are excluded from the near side: a support
+    already above the price is not support, and treating it as one is how a
+    bracket ends up with its stop on the wrong side of the entry.
+    """
+    ps = pivots(bars, left, right)
+    supports = sorted({round(b.low, 12) for _i, b, k in ps
+                       if k == "L" and b.low < market}, reverse=True)
+    resistances = sorted({round(b.high, 12) for _i, b, k in ps
+                          if k == "H" and b.high > market})
+    return {"support": supports[:max_levels],
+            "resistance": resistances[:max_levels]}
+
+
 def last_sweep(bars: list[Bar], left: int = 3, right: int = 3) -> tuple[float, str]:
     """Most recent confirmed liquidity sweep as (extreme, "LOW"|"HIGH").
 

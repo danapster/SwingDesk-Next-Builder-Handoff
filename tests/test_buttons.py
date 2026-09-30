@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from swingdesk.core import demo_data
-from swingdesk.core.models import LifecycleState, UniverseScope
+from swingdesk.core.models import (Direction, EngineResult, LifecycleState,
+                                   UniverseScope, Verdict)
 from swingdesk.core.store import now_iso
 
 
@@ -213,12 +214,27 @@ def _fill_plan_form(page, entry=1.0831, stop=1.0781, target=1.0991):
     page.target.setValue(target)
 
 
-def test_plans_use_engine_levels_button(make_app):
+def test_plans_use_engine_levels_button(make_app, monkeypatch):
+    """The button fills a bracket from real engine votes.
+
+    The default instrument is not guaranteed to have an actionable direction —
+    group_vote abstains when the evidence is thin — and then the button
+    correctly refuses rather than filling a guess. Drive it with a known set so
+    this asserts the fill path, not today's market.
+    """
     win = make_app()
     page = win.pages["plans"]
     assert page.entry.value() == 0
+
+    fakes = [EngineResult(engine_id=e, verdict=Verdict.ACTIVE, strength=s,
+                          direction=Direction.LONG, evidence=[])
+             for e, s in (("A.structure", 78), ("B.supply_demand", 82),
+                          ("D.fvg", 71), ("E.order_block", 74), ("G.crt", 69))]
+    monkeypatch.setattr(demo_data, "engine_results", lambda *_a, **_k: fakes)
     page.btn_fill.click()
     assert page.entry.value() != 0 and page.stop.value() != 0
+    assert page.direction.currentText() == "LONG"
+    assert page.stop.value() < page.entry.value() < page.target.value()
 
 
 def test_plans_compute_sizing_visible(make_app):

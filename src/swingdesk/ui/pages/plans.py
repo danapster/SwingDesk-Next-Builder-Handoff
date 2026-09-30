@@ -190,12 +190,23 @@ class PlansPage(QWidget):
             self.ctx.toast("No live price for this instrument — MT5 is not quoting it")
             return
 
-        bars = demo_data.bars(rec.broker_symbol, "H1", 200)
-        sweep_price, sweep_kind = engines.last_sweep(bars)
-        atr_value = engines.atr(bars) if bars else 0.0
-        levels = risk.derive_levels(market, direction, rec.contract,
-                                    sweep_price, sweep_kind, atr_value,
-                                    family=rec.family)
+        # Structure comes from H4 while the entry is an H1 market price: swings
+        # are read on the higher timeframe so the levels are the ones a chart
+        # would actually be drawn against, but the fill is still priced live.
+        h1 = demo_data.bars(rec.broker_symbol, "H1", 200)
+        h4 = demo_data.bars(rec.broker_symbol, "H4", 200)
+        structure = engines.structure_levels(h4 or h1, market)
+        supports = structure["support"]
+        resistances = structure["resistance"]
+        sweep_price, sweep_kind = engines.last_sweep(h1)
+        atr_value = engines.atr(h1) if h1 else 0.0
+
+        levels = risk.derive_levels(
+            market, direction, rec.contract,
+            sweep_price, sweep_kind, atr_value, family=rec.family,
+            support=supports[0] if supports else 0.0,
+            resistance=resistances[0] if resistances else 0.0,
+            next_levels=resistances if direction == "LONG" else supports)
 
         self.direction.setCurrentText(direction)
         self.entry.setValue(levels.entry)

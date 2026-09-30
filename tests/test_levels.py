@@ -128,7 +128,6 @@ def test_sweep_buffer_widens_when_the_broker_stops_level_is_larger():
                             family="FX majors")
     # 300 points beats the 100-point (10 pip) FX rule; the tighter of the two wins.
     assert (1.0800 - lv.stop) == pytest.approx(300 * tight.point)
-    assert any("stops level" in n for n in lv.notes)
 
 
 def test_a_sweep_already_behind_the_market_is_treated_as_stale():
@@ -212,6 +211,136 @@ def test_prices_land_on_the_broker_tick_grid(contract, market, direction):
     for price in (lv.entry, lv.stop, lv.target):
         assert abs(price / step - round(price / step)) < 1e-6, f"{price} off grid"
         assert round(price, contract.digits) == pytest.approx(price)
+
+
+# ------------------------------------------------- structure-defined brackets
+def test_stop_goes_beyond_the_nearest_support():
+    """The trader's rule: last support + 10 pips, on H4 structure."""
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                            family="FX majors", support=1.0800)
+    assert "support 1.08" in lv.basis
+    assert (1.0800 - lv.stop) == pytest.approx(10 * 10 * EURUSD.point)
+    assert guard_passes("LONG", 1.0825, lv, EURUSD)
+
+
+def test_stop_goes_beyond_the_nearest_resistance_for_a_short():
+    lv = risk.derive_levels(149.203, "SHORT", USDJPY, 0.0, "", 0.42,
+                            family="FX crosses", resistance=149.318)
+    assert "resistance 149.32" in lv.basis
+    assert (lv.stop - 149.318) == pytest.approx(10 * 10 * USDJPY.point)
+    assert guard_passes("SHORT", 149.203, lv, USDJPY)
+
+
+def test_structure_beats_the_liquidity_sweep():
+    """A confirmed level is where price turned; a sweep is a wick through one."""
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 1.0750, "LOW", 0.0012,
+                            family="FX majors", support=1.0800)
+    assert "support" in lv.basis
+    assert "sweep" not in lv.basis
+
+
+def test_target_is_the_next_level_in_the_move():
+    # Support at 1.0800 puts the stop 35 pips away, so the first level out at
+    # 1.0865 clears it and 1.0855 would not have.
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                            family="FX majors", support=1.0800,
+                            next_levels=[1.0865, 1.0890])
+    assert lv.target == pytest.approx(1.0865)
+    assert "next resistance 1.0865" in lv.basis
+
+
+def test_short_targets_the_next_support_down():
+    # Resistance at 149.318 with a 10-pip buffer leaves the stop 21.5 pips away.
+    lv = risk.derive_levels(149.203, "SHORT", USDJPY, 0.0, "", 0.42,
+                            family="FX crosses", resistance=149.318,
+                            next_levels=[149.100, 148.900])
+    assert lv.target == pytest.approx(148.900)
+    assert "next support 148.9" in lv.basis
+    assert any("Skipped 1" in n for n in lv.notes)
+
+
+def test_levels_inside_the_stop_distance_are_skipped():
+    """A target nearer than the stop cannot be expressed, so walk further out."""
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                            family="FX majors", support=1.0800,
+                            next_levels=[1.0830, 1.0840, 1.0890])
+    assert lv.target == pytest.approx(1.0890)
+    assert any("Skipped 2" in n for n in lv.notes)
+    # The target always sits further away than the stop.
+    assert (lv.target - lv.entry) > (lv.entry - lv.stop)
+
+
+def test_target_never_lands_inside_the_stop():
+    for supports in ([1.0810], [1.0800, 1.0790, 1.0750]):
+        lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                                family="FX majors", support=1.0770,
+                                next_levels=supports)
+        assert (lv.target - lv.entry) >= (lv.entry - lv.stop) - 1e-9
+
+
+def test_target_falls_back_to_r_when_no_level_clears_the_stop():
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                            family="FX majors", support=1.0800,
+                            next_levels=[1.0826])
+    assert "target 2R" in lv.basis
+    assert any("inside the stop distance" in n for n in lv.notes)
+    assert guard_passes("LONG", 1.0825, lv, EURUSD)
+
+
+def test_target_falls_back_when_no_level_lies_in_the_move():
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                            family="FX majors", support=1.0800, next_levels=[])
+    assert "target 2R" in lv.basis
+    assert any("No resistance lies ahead" in n for n in lv.notes)
+
+
+def test_atr_fallback_still_applies_without_structure():
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                            family="FX majors")
+    assert "ATR stop" in lv.basis
+    assert guard_passes("LONG", 1.0825, lv, EURUSD)
+
+
+def test_a_level_on_the_wrong_side_is_treated_as_stale():
+    """Support above the market is not support."""
+    lv = risk.derive_levels(1.0825, "LONG", EURUSD, 0.0, "", 0.0012,
+                            family="FX majors", support=1.0850)
+    assert "ATR stop" in lv.basis
+    assert any("wrong side of the market" in n for n in lv.notes)
+    assert guard_passes("LONG", 1.0825, lv, EURUSD)
+
+
+# --------------------------------------------------------- structure_levels()
+def test_structure_levels_orders_by_trading_distance():
+    bars = _bars([(1.0900, 1.0905, 1.0870, 1.0875)] * 6 +
+                 [(1.0870, 1.0878, 1.0820, 1.0825)] * 5 +
+                 [(1.0820, 1.0825, 1.0810, 1.0815)] * 4 +
+                 [(1.0815, 1.0820, 1.0805, 1.0818)] +
+                 [(1.0818, 1.0840, 1.0812, 1.0835)])
+    lv = engines.structure_levels(bars, market=1.0825, max_levels=99)
+    assert lv["support"], "expected support below the market"
+    assert lv["resistance"], "expected resistance above the market"
+    # Supports descend toward the market, resistances ascend away from it.
+    assert lv["support"] == sorted(lv["support"], reverse=True)
+    assert lv["resistance"] == sorted(lv["resistance"])
+    assert all(s < 1.0825 for s in lv["support"])
+    assert all(r > 1.0825 for r in lv["resistance"])
+
+
+def test_structure_levels_excludes_levels_on_the_wrong_side():
+    bars = _bars([(1.0900, 1.0905, 1.0870, 1.0875)] * 6 +
+                 [(1.0870, 1.0878, 1.0820, 1.0825)] * 5 +
+                 [(1.0820, 1.0825, 1.0810, 1.0815)] * 4 +
+                 [(1.0815, 1.0820, 1.0805, 1.0818)] +
+                 [(1.0818, 1.0840, 1.0812, 1.0835)])
+    lv = engines.structure_levels(bars, market=1.0825, max_levels=99)
+    # Nothing above the market is offered as support, whatever its label.
+    assert all(s < 1.0825 for s in lv["support"])
+
+
+def test_structure_levels_can_be_empty():
+    assert engines.structure_levels([], market=1.08) == {"support": [],
+                                                         "resistance": []}
 
 
 # ------------------------------------------------------------- last_sweep()

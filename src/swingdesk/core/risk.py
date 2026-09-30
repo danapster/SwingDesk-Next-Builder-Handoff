@@ -92,7 +92,9 @@ def sweep_buffer(family: str, contract: ContractSpec, atr_value: float = 0.0) ->
 def derive_levels(market: float, direction: str, contract: ContractSpec,
                   sweep_price: float = 0.0, sweep_kind: str = "",
                   atr_value: float = 0.0, family: str = "",
-                  reward_ratio: float = DEFAULT_REWARD_RATIO) -> Levels:
+                  reward_ratio: float = DEFAULT_REWARD_RATIO,
+                  support: float = 0.0, resistance: float = 0.0,
+                  next_levels: list[float] | None = None) -> Levels:
     """Build entry/stop/target around the live market price.
 
     `market` must be the price the order actually fills at — the ask for a buy,
@@ -102,10 +104,12 @@ def derive_levels(market: float, direction: str, contract: ContractSpec,
     sent, so the stop and target landed on the wrong side of the market and
     the volume, sized off the drawn distance, did not match the real risk.
 
-    The stop goes beyond the last liquidity sweep by `sweep_buffer`.  With no
-    confirmed sweep it falls back to an ATR stop, so a valid level always
-    exists.  Either way it is then pushed out to satisfy the broker's stops
-    level, which is frequently stricter than the advertised value.
+    The stop goes beyond the last liquidity sweep by `sweep_buffer`.  When a
+    confirmed support or resistance is supplied it takes precedence, since a
+    structural level is where the market has actually turned.  With neither
+    available the stop falls back to an ATR stop, so a valid level always
+    exists.  Either way it is pushed out to satisfy the broker's stops level,
+    which is frequently stricter than the advertised value.
     """
     notes: list[str] = []
     is_buy = (direction or "").upper() == "LONG"
@@ -118,41 +122,59 @@ def derive_levels(market: float, direction: str, contract: ContractSpec,
     wants_low = is_buy                      # a long needs room down to the sweep
     basis = ""
     raw_stop = 0.0
+    anchored = False
 
-    if sweep_price > 0 and ((wants_low and sweep_kind == "LOW") or
-                            (not wants_low and sweep_kind == "HIGH")):
-        raw_stop = sweep_price - min_dist if wants_low else sweep_price + min_dist
-        basis = (f"liquidity sweep {sweep_price:.5g} {sweep_kind.lower()} + buffer, "
-                 f"target {max(reward_ratio, 0.1):g}R")
-        if required > buffer > 0:
-            notes.append(f"The broker stops level ({contract.stops_level_points} points) "
-                         f"is wider than the {min_dist:.5g} buffer, so the stop was "
-                         "widened to clear it.")
+    # A confirmed structural level beats the swept one: it is where price
+    # actually turned, while a sweep is a wick through a level.
+    structural = support if is_buy else resistance
+    if structural > 0 and ((is_buy and structural < market) or
+                           (not is_buy and structural > market)):
+        raw_stop = (structural - min_dist if is_buy else structural + min_dist)
+        kind = "support" if is_buy else "resistance"
+        basis = f"{kind} {structural:.5g} + buffer"
+        anchored = True
+    elif sweep_price > 0 and ((wants_low and sweep_kind == "LOW") or
+                              (not is_buy and sweep_kind == "HIGH")):
+        raw_stop = sweep_price - min_dist if is_buy else sweep_price + min_dist
+        basis = f"liquidity sweep {sweep_price:.5g} {sweep_kind.lower()} + buffer"
+        anchored = True
     else:
         width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
         if atr_value <= 0:
-            notes.append("No confirmed liquidity sweep and no ATR available; "
-                         "stop placed at a provisional 0.4% width.")
+            notes.append("No confirmed support, resistance or liquidity sweep, and "
+                         "no ATR available; stop placed at a provisional 0.4% width.")
+            basis = "provisional 0.4% stop"
         else:
-            notes.append("No confirmed liquidity sweep in the lookback; "
-                         f"stop placed at {ATR_STOP_MULTIPLE:g}x ATR.")
+            if structural > 0:
+                notes.append(f"The nearest {'support' if is_buy else 'resistance'} "
+                             "sits on the wrong side of the market, so the stop fell "
+                             "back to ATR.")
+            else:
+                notes.append(f"No confirmed {'support' if is_buy else 'resistance'} "
+                             "in the lookback, so the stop fell back to "
+                             f"{ATR_STOP_MULTIPLE:g}x ATR.")
+            basis = "ATR stop"
         raw_stop = market - width if is_buy else market + width
-        basis = (f"ATR stop, target {max(reward_ratio, 0.1):g}R" if atr_value > 0
-                 else f"provisional 0.4% stop, target {max(reward_ratio, 0.1):g}R")
+    if anchored and required > buffer > 0:
+        notes.append(f"The broker stops level ({contract.stops_level_points} points) "
+                     f"is wider than the {min_dist:.5g} buffer, so the stop was "
+                     "widened to clear it.")
 
-    # A sweep that sits on the wrong side of the market is stale, not structure.
+    # A level on the wrong side of the market is stale, not structure.
     if is_buy and raw_stop >= market:
         width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
         raw_stop = market - width
-        basis = f"ATR stop (sweep already behind the market), target {max(reward_ratio, 0.1):g}R"
-        notes.append("The swept low is at or above the market; it has already been "
-                     "traded through, so the stop fell back to ATR.")
+        basis = "ATR stop (level already behind the market)"
+        anchored = False
+        notes.append("The nearest support is at or above the market; it has already "
+                     "been traded through, so the stop fell back to ATR.")
     elif not is_buy and raw_stop <= market:
         width = atr_value * ATR_STOP_MULTIPLE if atr_value > 0 else market * 0.004
         raw_stop = market + width
-        basis = f"ATR stop (sweep already behind the market), target {max(reward_ratio, 0.1):g}R"
-        notes.append("The swept high is at or below the market; it has already been "
-                     "traded through, so the stop fell back to ATR.")
+        basis = "ATR stop (level already behind the market)"
+        anchored = False
+        notes.append("The nearest resistance is at or below the market; it has already "
+                     "been traded through, so the stop fell back to ATR.")
 
     # The broker's stops level is a hard floor on the distance, whatever the
     # structure asked for.
@@ -166,20 +188,60 @@ def derive_levels(market: float, direction: str, contract: ContractSpec,
                      f"({contract.stops_level_points} points).")
 
     risk_distance = abs(market - raw_stop)
-    reward_distance = risk_distance * max(reward_ratio, 0.1)
+
+    # The target is the next structural level in the direction of the trade, not
+    # a fixed R multiple.  The immediate level is often nearer than the stop —
+    # a bracket whose target sits inside its own stop cannot be expressed and
+    # would report a reward-to-risk below 1 — so walk outward until the level
+    # clears the stop distance, and say how far out that had to be.
+    raw_target = 0.0
+    target_note = ""
+    skipped = 0
+    for level in (next_levels or ()):
+        distance = (level - market) if is_buy else (market - level)
+        if distance <= 0:
+            continue
+        if distance < risk_distance:
+            skipped += 1
+            continue
+        raw_target = level
+        break
+
+    if raw_target > 0:
+        if skipped:
+            target_note = (f"Skipped {skipped} nearer level"
+                           f"{'s' if skipped > 1 else ''} that sat inside the stop "
+                           f"distance; targeting the next one out.")
+        target_basis = f"next {'resistance' if is_buy else 'support'} {raw_target:.5g}"
+    else:
+        reward_distance = risk_distance * max(reward_ratio, 0.1)
+        raw_target = market + reward_distance if is_buy else market - reward_distance
+        target_basis = f"{max(reward_ratio, 0.1):g}R"
+        if skipped:
+            target_note = (f"Every level in the move sits inside the stop distance, "
+                           f"so the target fell back to {target_basis}.")
+        elif next_levels:
+            target_note = (f"Only one {'resistance' if is_buy else 'support'} lies in "
+                           f"the move and it sits inside the stop distance, so the "
+                           f"target fell back to {target_basis}.")
+        else:
+            target_note = (f"No {'resistance' if is_buy else 'support'} lies ahead of "
+                           f"the market in this lookback; target set at {target_basis}.")
 
     entry = round_to_tick(market, contract)
     stop = round_to_tick(raw_stop, contract)
-    target = round_to_tick(market + reward_distance if is_buy
-                           else market - reward_distance, contract)
+    target = round_to_tick(raw_target, contract)
 
     # Rounding to the tick grid can shave a point off the stops level; restore it.
     if is_buy and entry - stop < required:
         stop = round_to_tick(entry - required, contract)
     elif not is_buy and stop - entry < required:
         stop = round_to_tick(entry + required, contract)
+    if target_note:
+        notes.append(target_note)
 
-    return Levels(entry, stop, target, basis, tuple(notes))
+    return Levels(entry, stop, target, f"{basis}, target {target_basis}",
+                  tuple(notes))
 
 
 def floor_to_step(value: float, step: float) -> float:

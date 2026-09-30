@@ -17,6 +17,7 @@ import dataclasses
 import pytest
 
 from swingdesk.core import demo_data
+from swingdesk.core.models import Direction, EngineResult, Verdict
 
 
 def planner_symbol(page) -> str:
@@ -121,7 +122,7 @@ def test_form_record_resolves_the_live_symbol(make_app):
     assert rec.broker_symbol == "XAUUSD.m"
 
 
-def test_saved_plan_keeps_the_selected_symbol(make_app):
+def test_saved_plan_keeps_the_selected_symbol(make_app, monkeypatch):
     """End-to-end: the plan that gets persisted must be the chosen pair."""
     win = make_app()
     page = win.pages["plans"]
@@ -129,7 +130,13 @@ def test_saved_plan_keeps_the_selected_symbol(make_app):
     page.sync_symbol_selection(rec)
     assert planner_symbol(page) == "XAUUSD.m"
 
-    # Use engine levels so entry/stop/target are valid and order_check passes.
+    # Drive a known bullish vote: fill_from_engines legitimately abstains when the
+    # evidence is thin, and this test is about which symbol gets persisted.
+    fakes = [EngineResult(engine_id=e, verdict=Verdict.ACTIVE, strength=s,
+                          direction=Direction.LONG, evidence=[])
+             for e, s in (("A.structure", 78), ("B.supply_demand", 82),
+                          ("D.fvg", 71), ("E.order_block", 74), ("G.crt", 69))]
+    monkeypatch.setattr(demo_data, "engine_results", lambda *_a, **_k: fakes)
     page.fill_from_engines()
 
     # The cap has to at least afford the broker's minimum volume across the stop
